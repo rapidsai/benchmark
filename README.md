@@ -1,19 +1,12 @@
-# RAPIDS Standard Repo Template
+# RAPIDS Benchmark Examples
 
-This is repo is the standard RAPIDS repo with the following items to make all RAPIDS repos consistent:
+The purpose of this repo is to provide code snippets of different strategies to collect P0 metrics in benchmarks. Once there is a reliable and accurate way of capturing these metrics, a framework can be discussed.
 
-- GitHub File Templates
-  - Issue templates
-  - PR template
-- GitHub Repo Templates
-  - Issue/PR labels
-  - Project tracking and release board templates
-- Files
-  - `CHANGELOG.md` skeleton
-  - `CONTRIBUTING.md` skeleton
-  - `LICENSE` file with Apache 2.0 License
-  - `README.md` skeleton
+These code snippets should be generally applicable to anyone wanting to collect GPU metrics when developing a python benchmark.
 
+
+
+------------------------------
 
 ## Usage for new RAPIDS repos
 

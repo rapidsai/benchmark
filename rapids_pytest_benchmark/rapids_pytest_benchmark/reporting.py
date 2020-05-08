@@ -84,7 +84,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                     if prop not in ["outliers", "rounds", "iterations"]
                     else ""
                 )
-                for prop in self.columns
+                for prop in self.columns if (prop in labels) and (prop in widths)
             )
             tr.rewrite("")
             tr.write_line(
@@ -101,6 +101,9 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                 has_error = bench.get("has_error")
                 tr.write(bench["name"].ljust(widths["name"]), red=has_error, invert=has_error)
                 for prop in self.columns:
+                    if not((prop in bench) and (prop in widths) and (prop in bench) and (prop in worst)):
+                        continue
+
                     if prop in ("min", "max", "mean", "stddev", "median", "iqr"):
                         tr.write(
                             ALIGNED_NUMBER_FMT.format(
@@ -113,7 +116,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                             red=not solo and bench[prop] == worst.get(prop),
                             bold=True,
                         )
-                    elif (prop == "gpu_mem") and (prop in bench) and (prop in widths) and (prop in best):
+                    elif prop == "gpu_mem":
                         tr.write(
                             INT_NUMBER_FMT.format(
                                 bench[prop],
@@ -138,8 +141,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                             bold=True,
                         )
                     else:
-                        tr.write("{0:>{1}}".format((bench[prop] if prop in bench else ""),
-                                                   widths[prop]))
+                        tr.write("{0:>{1}}".format(bench[prop], widths[prop]))
                 tr.write("\n")
             tr.write_line("-" * len(labels_line), yellow=True)
             tr.write_line("")

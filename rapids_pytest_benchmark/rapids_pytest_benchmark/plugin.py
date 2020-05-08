@@ -210,11 +210,31 @@ def pytest_sessionstart(session):
     session.config._benchmarksession = session.config._gpubenchmarksession
 
 
+def _getHierNameFromFullname(benchFullname):
+    """
+    Turn a bench name that potentiall looks like this:
+       'foodir/bench_algos.py::BenchStuff::bench_bfs[1-2-False-True]'
+    into this:
+       'foodir.bench_algos.BenchStuff.bench_bfs'
+    """
+    benchFullname = benchFullname.partition("[")[0]  # strip any params
+    (modName, _, benchName) = benchFullname.partition("::")
+
+    if modName.endswith(".py"):
+        modName = modName.partition(".")[0]
+
+    modName = modName.replace("/", ".")
+    benchName = benchName.replace("::", ".")
+
+    return "%s.%s" % (modName, benchName)
+
+
 def pytest_sessionfinish(session, exitstatus):
     gpuBenchSess = session.config._gpubenchmarksession
     config = session.config
     asv_output_dir = config.getoption("benchmark_asv_output_dir", None)
-    if asv_output_dir:
+
+    if asv_output_dir and gpuBenchSess.benchmarks:
 
         (commitHash, commitTime) = asvdbUtils.getCommitInfo()
         (repo, branch) = asvdbUtils.getRepoInfo()
@@ -254,14 +274,15 @@ def pytest_sessionfinish(session, exitstatus):
                               ram=ram)
 
         for bench in gpuBenchSess.benchmarks:
-            benchName = bench.name.partition("[")[0]  # strip params from name
+            benchName = _getHierNameFromFullname(bench.fullname)
             params = {}
             for (paramName, paramVal) in bench.params.items():
                 if hasattr(bench, "fixture_param_names") and \
                    paramName in bench.fixture_param_names:
                     fixtureName = paramName
-                    for (pname, pval) in zip(bench.fixture_param_names[fixtureName],
-                                             paramVal):
+                    paramNames = bench.fixture_param_names[fixtureName]
+                    paramValues = paramVal
+                    for (pname, pval) in zip(paramNames, paramValues):
                         params[pname] = pval
                 else:
                     params[paramName] = paramVal

@@ -210,6 +210,15 @@ def pytest_sessionstart(session):
     session.config._benchmarksession = session.config._gpubenchmarksession
 
 
+def _ensureListLike(item):
+    """
+    Return the item if it is a list or tuple, otherwise add it to a list and
+    return that.
+    """
+    return item if (isinstance(item, list) or isinstance(item, tuple)) \
+                else [item]
+
+
 def _getHierNameFromFullname(benchFullname):
     """
     Turn a bench name that potentiall looks like this:
@@ -230,6 +239,9 @@ def _getHierNameFromFullname(benchFullname):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    if exitstatus != 0:
+        return
+
     gpuBenchSess = session.config._gpubenchmarksession
     config = session.config
     asv_output_dir = config.getoption("benchmark_asv_output_dir", None)
@@ -275,15 +287,30 @@ def pytest_sessionfinish(session, exitstatus):
 
         for bench in gpuBenchSess.benchmarks:
             benchName = _getHierNameFromFullname(bench.fullname)
+            # build the final params dict by extracting them from the
+            # bench.params dictionary
             params = {}
             for (paramName, paramVal) in bench.params.items():
+                # If the params are coming from a fixture, handle them
+                # differently since they will (should be) stored in a special
+                # variable accessible with the name of the fixture.
+                #
+                # NOTE: "fixture_param_names" must be manually set by the
+                # benchmark author/user using the "request" fixture! (see below)
+                #
+                # @pytest.fixture(params=[1,2,3])
+                # def someFixture(request):
+                #     request.keywords["fixture_param_names"] = ["the_param_name"]
                 if hasattr(bench, "fixture_param_names") and \
-                   paramName in bench.fixture_param_names:
+                   (bench.fixture_param_names is not None) and \
+                   (paramName in bench.fixture_param_names):
                     fixtureName = paramName
-                    paramNames = bench.fixture_param_names[fixtureName]
-                    paramValues = paramVal
+                    paramNames = _ensureListLike(bench.fixture_param_names[fixtureName])
+                    paramValues = _ensureListLike(paramVal)
                     for (pname, pval) in zip(paramNames, paramValues):
                         params[pname] = pval
+                # otherwise, a benchmark/test will have params added to the
+                # bench.params dict as a standard key:value (paramName:paramVal)
                 else:
                     params[paramName] = paramVal
 

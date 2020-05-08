@@ -1,7 +1,13 @@
 from functools import partial
+import time
+import platform
 
 import pytest
 import pytest_benchmark
+import asvdb.utils as asvdbUtils
+from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
+from pynvml import smi
+import psutil
 
 from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
 from .reporting import GPUTableResults
@@ -12,11 +18,6 @@ __version__ = "0.1"
 
 def pytest_addoption(parser):
     group = parser.getgroup("benchmark")
-    group.addoption(
-        "--benchmark-disable-gpu-metrics",
-        action="store_true", default=False,
-        help="Disable GPU measurements on the 'benchmark' fixture."
-        )
     # FIXME: add check for valid dir, similar to "parse_save()" in pytest-benchmark
     group.addoption(
         "--benchmark-asv-output-dir",
@@ -46,9 +47,10 @@ class GPUBenchmarkResults:
 
 
 class GPUMetadata(pytest_benchmark.stats.Metadata):
-    def __init__(self, fixture, iterations, options):
+    def __init__(self, fixture, iterations, options, fixtureParamNames=None):
         super().__init__(fixture, iterations, options)
         self.stats = GPUStats()
+        self.fixture_param_names = fixtureParamNames
 
     def update(self, gpuBenchmarkResults):
         # Assume GPU metrics do not accumulate over multiple runs like runtime does?
@@ -85,51 +87,41 @@ class GPUStats(pytest_benchmark.stats.Stats):
 
 class GPUBenchmarkFixture(pytest_benchmark.fixture.BenchmarkFixture):
 
-    def __init__(self, benchmarkFixtureInstance):
+    def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
+        self.fixture_param_names = fixtureParamNames
         self.__timeOnlyRunner = None
 
     def __getattr__(self, attr):
         return getattr(self.__benchmarkFixtureInstance, attr)
 
-    # def _make_runner(self, function_to_benchmark, args, kwargs):
-    #     origBenchmarkRunner = super()._make_runner(function_to_benchmark,
-    #                                                args, kwargs)
-    #     self.__timeOnlyRunner = origBenchmarkRunner
-
-    #     def runner(loops_range, timer=self._timer):
-    #         gpuPollObj = startGpuMetricPolling()
-    #         try:
-    #             origRetVal = origBenchmarkRunner(loops_range, timer)
-    #         finally:
-    #             stopGpuMetricPolling(gpuPollObj)
-
-    #         if loops_range:
-    #             return GPUBenchmarkResults(runtime=origRetVal,
-    #                                        gpuMem=gpuPollObj.maxGpuMemUsed,
-    #                                        gpuUtil=gpuPollObj.maxGpuUtil)
-    #         else:
-    #             return (GPUBenchmarkResults(runtime=origRetVal[0],
-    #                                         gpuMem=gpuPollObj.maxGpuMemUsed,
-    #                                         gpuUtil=gpuPollObj.maxGpuUtil),
-    #                     origRetVal[1])
-    #     return runner
-
     def _make_runner(self, function_to_benchmark, args, kwargs):
+        # The benchmark runner returned from BenchmarkFixture._make_runner() is
+        # a function that runs the function_to_benchmark loops_range times in a
+        # loop and returns total timed duration.
         timeBenchmarkRunner = super()._make_runner(function_to_benchmark,
                                                    args, kwargs)
         self.__timeOnlyRunner = timeBenchmarkRunner
 
         def runner(loops_range, timer=self._timer):
             # GPU polling increases runtime for code that uses the GPU, so
-            # perform runs to measure runtime separately
-
+            # perform runs to measure runtime separately.
             # runtime measurement
             timeRetVal = timeBenchmarkRunner(loops_range, timer)
+
             # GPU measurements
             gpuPollObj = startGpuMetricPolling()
+            time.sleep(0.1)
             try:
-                timeBenchmarkRunner(loops_range, timer)
+                startTime = time.time()
+                (_, result) = timeBenchmarkRunner(loops_range=0,
+                                                  timer=timer)
+                duration = time.time() - startTime
+                # guarantee a minimum time has passed to ensure GPU metrics have
+                # been taken
+                if duration < 0.1:
+                    time.sleep(0.1)
+
             finally:
                 stopGpuMetricPolling(gpuPollObj)
 
@@ -148,14 +140,17 @@ class GPUBenchmarkFixture(pytest_benchmark.fixture.BenchmarkFixture):
         return super()._calibrate_timer(self.__timeOnlyRunner)
 
     def _make_stats(self, iterations):
-        bench_stats = GPUMetadata(self, iterations=iterations, options={
-            "disable_gc": self._disable_gc,
-            "timer": self._timer,
-            "min_rounds": self._min_rounds,
-            "max_time": self._max_time,
-            "min_time": self._min_time,
-            "warmup": self._warmup,
-        })
+        bench_stats = GPUMetadata(self,
+                                  iterations=iterations,
+                                  options={
+                                      "disable_gc": self._disable_gc,
+                                      "timer": self._timer,
+                                      "min_rounds": self._min_rounds,
+                                      "max_time": self._max_time,
+                                      "min_time": self._min_time,
+                                      "warmup": self._warmup,
+                                  },
+                                  fixtureParamNames=self.fixture_param_names)
         self._add_stats(bench_stats)
         self.stats = bench_stats
         return bench_stats
@@ -196,81 +191,108 @@ class GPUBenchmarkSession(pytest_benchmark.session.BenchmarkSession):
         self.display_cprofile(tr)
 
 
-
-def pytest_configure(config):
-    return
-    config._gpubenchmarksession = None
+# def pytest_configure(config):
+#     return
 
 
 @pytest.fixture(scope="function")
-def gpubenchmark(benchmark):
-    return GPUBenchmarkFixture(benchmark)
+def gpubenchmark(request, benchmark):
+    # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
+    # FIXME: if no params, do not enforce fixture_param_names check
+    return GPUBenchmarkFixture(benchmark, request.node.keywords.get("fixture_param_names"))
 
 
+################################################################################
 def pytest_sessionstart(session):
-    # # Replace the pytest-benchmark hook function objects with the wrappers defined here
-    # for hc in session.config.pluginmanager.get_hookcallers(pytest_benchmark.plugin):
-    #     if hc.name == "pytest_report_header":
-    #         #hc.spec.function = rapids_pytest_report_header
-    #         for hi in hc.get_hookimpls():
-    #             if hi.plugin_name == "benchmark":
-    #                 hi.function = rapids_pytest_report_header
-
     session.config._benchmarksession_orig = session.config._benchmarksession
     session.config._gpubenchmarksession = \
         GPUBenchmarkSession(session.config._benchmarksession)
     session.config._benchmarksession = session.config._gpubenchmarksession
 
-    # p = session.config.pluginmanager.get_plugin("benchmark")
-    # p = session.config.pluginmanager.unregister(pytest_benchmark.plugin)
-    # session.config.pluginmanager.unregister(name="benchmark")
-    # #session.config.pluginmanager.register(pytest_benchmark.plugin)
-    # p.pytest_report_header = rapids_pytest_report_header
-    # session.config.pluginmanager.register(p, name="benchmark")
+
+def pytest_sessionfinish(session, exitstatus):
+    gpuBenchSess = session.config._gpubenchmarksession
+    config = session.config
+    asv_output_dir = config.getoption("benchmark_asv_output_dir", None)
+    if asv_output_dir:
+
+        (commitHash, commitTime) = asvdbUtils.getCommitInfo()
+        (repo, branch) = asvdbUtils.getRepoInfo()
+        db = ASVDb(asv_output_dir, repo, [branch])
+
+        smi.nvmlInit()
+        # FIXME: get actual device number!
+        gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(0)
+        uname = platform.uname()
+        machineName = uname.machine
+        cpuType = uname.processor
+        arch = uname.machine
+        pythonVer=platform.python_version()
+        cudaVer = "unknown"
+        osType = platform.linux_distribution()[0]
+        gpuType = smi.nvmlDeviceGetName(gpuDeviceHandle).decode()
+        ram = "%d" % psutil.virtual_memory().total
+
+        suffixDict = dict(gpu_util="gpuutil",
+                          gpu_mem="gpumem",
+                          mean="time",
+        )
+        unitsDict = dict(gpu_util="percent",
+                         gpu_mem="bytes",
+                         mean="seconds",
+        )
+
+        bInfo = BenchmarkInfo(machineName=machineName,
+                              cudaVer=cudaVer,
+                              osType=osType,
+                              pythonVer=pythonVer,
+                              commitHash=commitHash,
+                              commitTime=commitTime,
+                              gpuType=gpuType,
+                              cpuType=cpuType,
+                              arch=arch,
+                              ram=ram)
+
+        for bench in gpuBenchSess.benchmarks:
+            benchName = bench.name.partition("[")[0]  # strip params from name
+            params = {}
+            for (paramName, paramVal) in bench.params.items():
+                if hasattr(bench, "fixture_param_names") and \
+                   paramName in bench.fixture_param_names:
+                    fixtureName = paramName
+                    for (pname, pval) in zip(bench.fixture_param_names[fixtureName],
+                                             paramVal):
+                        params[pname] = pval
+                else:
+                    params[paramName] = paramVal
+
+            bench.stats.mean
+            getattr(bench.stats, "gpu_mem", None)
+            getattr(bench.stats, "gpu_util", None)
+
+            for statType in ["mean", "gpu_mem", "gpu_util"]:
+                bn = "%s_%s" % (benchName, suffixDict[statType])
+                val = getattr(bench.stats, statType, None)
+                if val is not None:
+                    bResult = BenchmarkResult(funcName=bn,
+                                              argNameValuePairs=list(params.items()),
+                                              result=val)
+                    bResult.unit = unitsDict[statType]
+                    db.addResult(bInfo, bResult)
 
 
-def DISABLED_pytest_plugin_registered(plugin, manager):
-    pass
-#     if plugin != pytest_benchmark.plugin:
-#         return
-
-    #plugin = config.pluginmanager.get_plugin("benchmark")
-    #plugin.pytest_report_header = rapids_pytest_report_header
-
-#     class BenchmarkFixtureOverride(plugin.BenchmarkFixture):
-#
-#         def __init__(self, benchmarkFixtureInstance):
-#             self.__benchmarkFixtureInstance = benchmarkFixtureInstance
-#
-#         def __getattr__(self, attr):
-#             return getattr(self.__benchmarkFixtureInstance, attr)
-#
-#         def _make_stats(self, iterations):
-#             bench_stats = pytest_benchmark.stats.Metadata(
-#                 self, iterations=iterations, options={
-#                     "disable_gc": self._disable_gc,
-#                     "timer": self._timer,
-#                     "min_rounds": self._min_rounds,
-#                     "max_time": self._max_time,
-#                     "min_time": self._min_time,
-#                     "something_else": 44,
-#                     "warmup": self._warmup,
-#                 })
-#             self._add_stats(bench_stats)
-#             self.stats = bench_stats
-#             return bench_stats
-#
-#     global GPUBenchmarkFixture
-#     GPUBenchmarkFixture = BenchmarkFixtureOverride
-
-################################################################################
 def pytest_report_header(config):
-    #bs = config._benchmarksession
-    return ("gpubenchmark: {version} (defaults:"
-            " asv_output_dir=."
-            ")").format(
+    return ("rapids_pytest_benchmark: {version})").format(
         version=__version__
     )
+
+
+def DISABLED_pytest_benchmark_scale_unit(config, unit, benchmarks, best, worst, sort):
+    """
+    Scale GPU memory and utilization measurements accordingly
+    """
+    return
+
 
 def DISABLED_pytest_terminal_summary(terminalreporter):
     """
@@ -290,3 +312,24 @@ def DISABLED_pytest_terminal_summary(terminalreporter):
         for b in tr.config._benchmarksession.benchmarks:
             bd = b.as_dict()
             tr.write_line("max GPU mem: %s" % bd["stats"]["gpu_mem"])
+
+
+
+
+
+
+########
+    # # Replace the pytest-benchmark hook function objects with the wrappers defined here
+    # for hc in session.config.pluginmanager.get_hookcallers(pytest_benchmark.plugin):
+    #     if hc.name == "pytest_report_header":
+    #         #hc.spec.function = rapids_pytest_report_header
+    #         for hi in hc.get_hookimpls():
+    #             if hi.plugin_name == "benchmark":
+    #                 hi.function = rapids_pytest_report_header
+
+    # p = session.config.pluginmanager.get_plugin("benchmark")
+    # p = session.config.pluginmanager.unregister(pytest_benchmark.plugin)
+    # session.config.pluginmanager.unregister(name="benchmark")
+    # #session.config.pluginmanager.register(pytest_benchmark.plugin)
+    # p.pytest_report_header = rapids_pytest_report_header
+    # session.config.pluginmanager.register(p, name="benchmark")

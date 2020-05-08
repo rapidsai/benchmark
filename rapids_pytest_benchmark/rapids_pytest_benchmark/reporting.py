@@ -5,7 +5,7 @@ import pytest_benchmark
 
 NUMBER_FMT = pytest_benchmark.table.NUMBER_FMT
 ALIGNED_NUMBER_FMT = pytest_benchmark.table.ALIGNED_NUMBER_FMT
-INT_NUMBER_FMT = "{0:,d}" if sys.version_info[:2] > (2, 6) else "{0:d}"
+INT_NUMBER_FMT = "  {0:,d}" if sys.version_info[:2] > (2, 6) else "  {0:d}"
 
 class GPUTableResults(pytest_benchmark.table.TableResults):
     def display(self, tr, groups, progress_reporter=pytest_benchmark.utils.report_progress):

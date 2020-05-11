@@ -1,6 +1,6 @@
 package:
     name: rapids-pytest-benchmark
-    version: 0.0.2dev0
+    version: 0.0.3dev0
 
 source:
     #git_url: https://github.com/rapidsai/benchmark.git
@@ -8,7 +8,6 @@ source:
 
 build:
     number: 0
-    noarch: python
 
 requirements:
     build:

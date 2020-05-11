@@ -1,0 +1,32 @@
+package:
+    name: rapids-pytest-benchmark
+    version: 0.0.1dev0
+
+source:
+    #git_url: https://github.com/rapidsai/benchmark.git
+    path: ..
+
+build:
+    number: 0
+    noarch: python
+
+requirements:
+    build:
+        - python x.x
+        - setuptools
+        - pytest-benchmark
+        - pynvml
+        - asvdb
+
+    run:
+        - pytest-benchmark
+        - pynvml
+        - asvdb
+
+test:
+    imports:
+        - rapids_pytest_benchmark
+
+about:
+    home: https://github.com/rapidsai/benchmark
+    license: Apache 2.0

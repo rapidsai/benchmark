@@ -330,7 +330,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 def pytest_report_header(config):
-    return ("rapids_pytest_benchmark: {version})").format(
+    return ("rapids_benchmark: {version})").format(
         version=__version__
     )
 

@@ -12,13 +12,14 @@ build:
 
 requirements:
     build:
-        - python x.x
+        - python
         - setuptools
         - pytest-benchmark
         - pynvml
         - asvdb
 
     run:
+        - python
         - pytest-benchmark
         - pynvml
         - asvdb

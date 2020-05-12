@@ -1,6 +1,6 @@
 package:
     name: rapids-pytest-benchmark
-    version: 0.0.3dev0
+    version: 0.0.4dev0
 
 source:
     #git_url: https://github.com/rapidsai/benchmark.git
@@ -10,18 +10,23 @@ build:
     number: 0
 
 requirements:
+
+    # The runtime deps are also needed for build because setup.py lists them and
+    # will try to download from pypi during the build step if not installed.
     build:
         - python
         - setuptools
-        - pytest-benchmark
+        - pytest-benchmark=3.2.3
         - pynvml
         - asvdb
+        - pygal
 
     run:
         - python
-        - pytest-benchmark
+        - pytest-benchmark=3.2.3
         - pynvml
         - asvdb
+        - pygal
 
 test:
     imports:

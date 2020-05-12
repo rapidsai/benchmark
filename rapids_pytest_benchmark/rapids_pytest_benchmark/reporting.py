@@ -1,14 +1,19 @@
 import sys
 import operator
 
-import pytest_benchmark
+from pytest_benchmark import table as pytest_benchmark_table
+from pytest_benchmark import utils as pytest_benchmark_utils
+from pytest_benchmark import histogram as pytest_benchmark_histogram
 
-NUMBER_FMT = pytest_benchmark.table.NUMBER_FMT
-ALIGNED_NUMBER_FMT = pytest_benchmark.table.ALIGNED_NUMBER_FMT
-INT_NUMBER_FMT = "  {0:,d}" if sys.version_info[:2] > (2, 6) else "  {0:d}"
 
-class GPUTableResults(pytest_benchmark.table.TableResults):
-    def display(self, tr, groups, progress_reporter=pytest_benchmark.utils.report_progress):
+NUMBER_FMT = pytest_benchmark_table.NUMBER_FMT
+ALIGNED_NUMBER_FMT = pytest_benchmark_table.ALIGNED_NUMBER_FMT
+INT_NUMBER_FMT = "{0:,d}" if sys.version_info[:2] > (2, 6) else "{0:d}"
+ALIGNED_INT_NUMBER_FMT = "{0:>{1},d}{2:<{3}}" if sys.version_info[:2] > (2, 6) else "{0:>{1}d}{2:<{3}}"
+
+
+class GPUTableResults(pytest_benchmark_table.TableResults):
+    def display(self, tr, groups, progress_reporter=pytest_benchmark_utils.report_progress):
         tr.write_line("")
         tr.rewrite("Computing stats ...", black=True, bold=True)
         for line, (group, benchmarks) in progress_reporter(groups, tr, "Computing stats ... group {pos}/{total}"):
@@ -45,7 +50,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
             ops_unit, ops_adjustment = self.scale_unit(unit='operations', benchmarks=benchmarks, best=best, worst=worst,
                                                        sort=self.sort)
             labels = {
-                "name": "Name (time in {0}s)".format(unit),
+                "name": "Name (time in {0}s, mem in bytes)".format(unit),
                 "min": "Min",
                 "max": "Max",
                 "mean": "Mean",
@@ -81,7 +86,8 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
             labels_line = labels["name"].ljust(widths["name"]) + "".join(
                 labels[prop].rjust(widths[prop]) + (
                     " " * rpadding
-                    if prop not in ["outliers", "rounds", "iterations"]
+                    #if prop not in ["outliers", "rounds", "iterations"]
+                    if prop not in ["outliers", "iterations"]
                     else ""
                 )
                 for prop in self.columns if (prop in labels) and (prop in widths)
@@ -109,7 +115,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                             ALIGNED_NUMBER_FMT.format(
                                 bench[prop] * adjustment,
                                 widths[prop],
-                                pytest_benchmark.table.compute_baseline_scale(best[prop], bench[prop], rpadding),
+                                pytest_benchmark_table.compute_baseline_scale(best[prop], bench[prop], rpadding),
                                 rpadding
                             ),
                             green=not solo and bench[prop] == best.get(prop),
@@ -118,10 +124,10 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                         )
                     elif prop == "gpu_mem":
                         tr.write(
-                            INT_NUMBER_FMT.format(
+                            ALIGNED_INT_NUMBER_FMT.format(
                                 bench[prop],
                                 widths[prop],
-                                pytest_benchmark.table.compute_baseline_scale(best[prop], bench[prop], rpadding),
+                                pytest_benchmark_table.compute_baseline_scale(best[prop], bench[prop], rpadding),
                                 rpadding
                             ),
                             green=not solo and bench[prop] == best.get(prop),
@@ -133,7 +139,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
                             ALIGNED_NUMBER_FMT.format(
                                 bench[prop] * ops_adjustment,
                                 widths[prop],
-                                pytest_benchmark.table.compute_baseline_scale(best[prop], bench[prop], rpadding),
+                                pytest_benchmark_table.compute_baseline_scale(best[prop], bench[prop], rpadding),
                                 rpadding
                             ),
                             green=not solo and bench[prop] == best.get(prop),
@@ -146,7 +152,7 @@ class GPUTableResults(pytest_benchmark.table.TableResults):
             tr.write_line("-" * len(labels_line), yellow=True)
             tr.write_line("")
             if self.histogram:
-                from pytest_benchmark.histogram import make_histogram
+                from pytest_benchmark_histogram import make_histogram
                 if len(benchmarks) > 75:
                     self.logger.warn("Group {0!r} has too many benchmarks. Only plotting 50 benchmarks.".format(group))
                     benchmarks = benchmarks[:75]

@@ -152,12 +152,11 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
             tr.write_line("-" * len(labels_line), yellow=True)
             tr.write_line("")
             if self.histogram:
-                from pytest_benchmark_histogram import make_histogram
                 if len(benchmarks) > 75:
                     self.logger.warn("Group {0!r} has too many benchmarks. Only plotting 50 benchmarks.".format(group))
                     benchmarks = benchmarks[:75]
 
-                output_file = make_histogram(self.histogram, group, benchmarks, unit, adjustment)
+                output_file = pytest_benchmark_histogram.make_histogram(self.histogram, group, benchmarks, unit, adjustment)
 
                 self.logger.info("Generated histogram: {0}".format(output_file), bold=True)
 

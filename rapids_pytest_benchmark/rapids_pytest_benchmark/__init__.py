@@ -17,6 +17,13 @@ def setFixtureParamNames(request, orderedParamNameList):
     my_benchmark[managed_memory=True, pool_allocator=False]
     my_benchmark[managed_memory=False, pool_allocator=True]
     my_benchmark[managed_memory=False, pool_allocator=False]
+
+    orderedParamNameList can have more params specified than are used. For
+    example, if a fixture only has 2 params, only the first 2 names in
+    orderedParamNameList are used.
+    FIXME: what to do if *fewer* params are specified?
     """
-    request.keywords.setdefault("fixture_param_names",
-                                dict())[request.fixturename] = orderedParamNameList
+    numParams = len(request.param)
+    request.keywords.setdefault(
+        "fixture_param_names",
+        dict())[request.fixturename] = orderedParamNameList[:numParams]

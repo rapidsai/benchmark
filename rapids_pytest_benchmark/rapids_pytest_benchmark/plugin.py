@@ -15,6 +15,10 @@ import psutil
 from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
 from .reporting import GPUTableResults
 
+# FIXME: find a better place to do this and/or a better way
+pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
+pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
+
 
 __version__ = "0.1"
 

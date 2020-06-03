@@ -1,6 +1,9 @@
 from functools import partial
 import time
 import platform
+import ctypes
+import argparse
+import subprocess
 
 import pytest
 from pytest_benchmark import stats as pytest_benchmark_stats
@@ -20,17 +23,81 @@ pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
 
 
-__version__ = "0.1"
+# FIXME: single-source this to stay syncd with the version in the packaging code
+__version__ = "0.0.7"
 
 
 def pytest_addoption(parser):
     group = parser.getgroup("benchmark")
-    # FIXME: add check for valid dir, similar to "parse_save()" in pytest-benchmark
+    # FIXME: add check for valid dir, similar to "parse_save()" in
+    # pytest-benchmark
+
+    # FIXME: when multi-GPU supported, update the help to mention that the user
+    # can specify this option multiple times to observe multiple GPUs? This is
+    # why action=append.
+    group.addoption(
+        "--benchmark-gpu-device",
+        metavar="GPU_DEVICENO", default=[0], type=_parseSaveGPUDeviceNum,
+        help="GPU device number to observe for GPU metrics."
+    )
     group.addoption(
         "--benchmark-asv-output-dir",
         metavar="ASV_DB_DIR", default=None,
         help='ASV "database" directory to update with benchmark results.'
     )
+    group.addoption(
+        "--benchmark-asv-metadata",
+        metavar="ASV_DB_METADATA",
+        default={}, type=_parseSaveMetadata,
+        help='Metadata to be included in the ASV report. For example: '
+        '"machineName=my_machine2000, gpuType=FastGPU3, arch=x86_64". If not '
+        'provided, best-guess values will be derived from the environment. '
+        'Valid metadata is: "machineName", "cudaVer", "osType", "pythonVer", '
+        '"commitRepo", "commitBranch", "commitHash", "commitTime", "gpuType", '
+        '"cpuType", "arch", "ram", "gpuRam"'
+    )
+
+
+def _parseSaveGPUDeviceNum(stringOpt):
+    """
+    Given a string like "0,1, 2" return [0, 1, 2]
+    """
+    if not stringOpt:
+        raise argparse.ArgumentTypeError("Cannot be empty")
+    retList = []
+
+    for i in stringOpt.split(","):
+        try:
+            num = int(i.strip())
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"must specify an int, got {i}")
+        # FIXME: also check that this is a valid GPU device
+        if num not in retList:
+            retList.append(num)
+
+    return retList
+
+
+def _parseSaveMetadata(stringOpt):
+    """
+    Given a string like "foo=bar, baz=44" return {'foo':'bar', 'baz':44}
+    """
+    if not stringOpt:
+        raise argparse.ArgumentTypeError("Cannot be empty")
+
+    validVars = ["machineName", "cudaVer", "osType", "pythonVer",
+                 "commitRepo", "commitBranch", "commitHash", "commitTime",
+                 "gpuType", "cpuType", "arch", "ram", "gpuRam"]
+    retDict = {}
+
+    for pair in stringOpt.split(","):
+        (var, value) = [i.strip() for i in pair.split("=")]
+        if var in validVars:
+            retDict[var.strip()] = str(value.strip())
+        else:
+            raise argparse.ArgumentTypeError(f'invalid metadata var: "{var}"')
+
+    return retDict
 
 
 class GPUBenchmarkResults:
@@ -81,9 +148,11 @@ class GPUStats(pytest_benchmark_stats.Stats):
 
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
-    def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None):
+    def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
+                 gpuDeviceNums=None):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
+        self.gpuDeviceNums = gpuDeviceNums or [0]
         self.__timeOnlyRunner = None
 
     def __getattr__(self, attr):
@@ -104,7 +173,7 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
             timeRetVal = timeBenchmarkRunner(loops_range, timer)
 
             # GPU measurements
-            gpuPollObj = startGpuMetricPolling()
+            gpuPollObj = startGpuMetricPolling(self.gpuDeviceNums)
             time.sleep(0.1)
             try:
                 startTime = time.time()
@@ -193,15 +262,14 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
         self.display_cprofile(tr)
 
 
-# def pytest_configure(config):
-#     return
-
-
 @pytest.fixture(scope="function")
 def gpubenchmark(request, benchmark):
     # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
     # FIXME: if no params, do not enforce fixture_param_names check
-    return GPUBenchmarkFixture(benchmark, request.node.keywords.get("fixture_param_names"))
+    gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
+    return GPUBenchmarkFixture(benchmark,
+        fixtureParamNames=request.node.keywords.get("fixture_param_names"),
+        gpuDeviceNums=gpuDeviceNums)
 
 
 ################################################################################
@@ -210,6 +278,38 @@ def pytest_sessionstart(session):
     session.config._gpubenchmarksession = \
         GPUBenchmarkSession(session.config._benchmarksession)
     session.config._benchmarksession = session.config._gpubenchmarksession
+
+
+def _getOSName():
+    try :
+        binout = subprocess.check_output(
+            ["bash", "-c",
+             "source /etc/os-release && echo -n ${ID}-${VERSION_ID}"])
+        return binout.decode()
+
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _getCudaVersion():
+    """
+    Get the CUDA version from the DLL if possible, otherwise return None.
+    (is this better than screen scraping nvidia-smi?)
+    """
+    try :
+        lib = ctypes.CDLL("libcudart.so")
+        function = getattr(lib,"cudaRuntimeGetVersion")
+        result = ctypes.c_int()
+        resultPtr = ctypes.pointer(result)
+        function(resultPtr)
+        # The version is returned as (1000 major + 10 minor). For example, CUDA
+        # 9.2 would be represented by 9020
+        major = int(result.value / 1000)
+        minor = int((result.value - (major * 1000)) / 10)
+        return f"{major}.{minor}"
+    # FIXME: do not use a catch-all handler
+    except:
+        return None
 
 
 def _ensureListLike(item):
@@ -246,26 +346,42 @@ def pytest_sessionfinish(session, exitstatus):
 
     gpuBenchSess = session.config._gpubenchmarksession
     config = session.config
-    asv_output_dir = config.getoption("benchmark_asv_output_dir", None)
+    asvOutputDir = config.getoption("benchmark_asv_output_dir")
+    asvMetadata = config.getoption("benchmark_asv_metadata")
+    gpuDeviceNums = config.getoption("benchmark_gpu_device")
 
-    if asv_output_dir and gpuBenchSess.benchmarks:
+    if asvOutputDir and gpuBenchSess.benchmarks:
 
+        # FIXME: do not lookup commit metadata if already specified on the
+        # command line.
         (commitHash, commitTime) = asvdbUtils.getCommitInfo()
-        (repo, branch) = asvdbUtils.getRepoInfo()
-        db = ASVDb(asv_output_dir, repo, [branch])
+        (commitRepo, commitBranch) = asvdbUtils.getRepoInfo()
 
+        # FIXME: do not make pynvml calls if all the metadata provided by pynvml
+        # was specified on the command line.
         smi.nvmlInit()
-        # FIXME: get actual device number!
-        gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(0)
+        # only supporting 1 GPU
+        gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(gpuDeviceNums[0])
+
         uname = platform.uname()
-        machineName = uname.machine
-        cpuType = uname.processor
-        arch = uname.machine
-        pythonVer=platform.python_version()
-        cudaVer = "unknown"
-        osType = platform.linux_distribution()[0]
-        gpuType = smi.nvmlDeviceGetName(gpuDeviceHandle).decode()
-        ram = "%d" % psutil.virtual_memory().total
+        machineName = asvMetadata.get("machineName", uname.machine)
+        cpuType = asvMetadata.get("cpuType", uname.processor)
+        arch = asvMetadata.get("arch", uname.machine)
+        pythonVer = asvMetadata.get("pythonVer",
+            ".".join(platform.python_version_tuple()[:-1]))
+        cudaVer = asvMetadata.get("cudaVer", _getCudaVersion() or "unknown")
+        osType = asvMetadata.get("osType",
+            _getOSName() or platform.linux_distribution()[0])
+        gpuType = asvMetadata.get("gpuType",
+            smi.nvmlDeviceGetName(gpuDeviceHandle).decode())
+        ram = asvMetadata.get("ram", "%d" % psutil.virtual_memory().total)
+        gpuRam = asvMetadata.get("gpuRam",
+            "%d" % smi.nvmlDeviceGetMemoryInfo(gpuDeviceHandle).total)
+
+        commitHash = asvMetadata.get("commitHash", commitHash)
+        commitTime = asvMetadata.get("commitTime", commitTime)
+        commitRepo = asvMetadata.get("commitRepo", commitRepo)
+        commitBranch = asvMetadata.get("commitBranch", commitBranch)
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
@@ -276,6 +392,8 @@ def pytest_sessionfinish(session, exitstatus):
                          mean="seconds",
         )
 
+        db = ASVDb(asvOutputDir, commitRepo, [commitBranch])
+
         bInfo = BenchmarkInfo(machineName=machineName,
                               cudaVer=cudaVer,
                               osType=osType,
@@ -285,7 +403,8 @@ def pytest_sessionfinish(session, exitstatus):
                               gpuType=gpuType,
                               cpuType=cpuType,
                               arch=arch,
-                              ram=ram)
+                              ram=ram,
+                              gpuRam=gpuRam)
 
         for bench in gpuBenchSess.benchmarks:
             benchName = _getHierNameFromFullname(bench.fullname)

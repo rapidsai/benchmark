@@ -3,8 +3,9 @@ package:
     version: 0.0.7dev0
 
 source:
-    #git_url: https://github.com/rapidsai/benchmark.git
-    path: ..
+    # Actual git_url is: https://github.com/rapidsai/benchmark.git, but using a
+    # relative path to build from sources here.
+    git_url: ..
 
 build:
     number: 0

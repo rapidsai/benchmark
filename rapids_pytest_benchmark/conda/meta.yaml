@@ -1,0 +1,38 @@
+package:
+    name: rapids-pytest-benchmark
+    version: 0.0.7dev0
+
+source:
+    # Actual git_url is: https://github.com/rapidsai/benchmark.git, but using a
+    # relative path to build from sources here.
+    git_url: ..
+
+build:
+    number: 0
+
+requirements:
+
+    # The runtime deps are also needed for build because setup.py lists them and
+    # will try to download from pypi during the build step if not installed.
+    build:
+        - python
+        - setuptools
+        - pytest-benchmark=3.2.3
+        - pynvml
+        - asvdb
+        - pygal
+
+    run:
+        - python
+        - pytest-benchmark=3.2.3
+        - pynvml
+        - asvdb
+        - pygal
+
+test:
+    imports:
+        - rapids_pytest_benchmark
+
+about:
+    home: https://github.com/rapidsai/benchmark
+    license: Apache 2.0

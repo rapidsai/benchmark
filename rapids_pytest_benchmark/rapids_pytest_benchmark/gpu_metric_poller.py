@@ -28,6 +28,7 @@ class GPUMetricPoller(threading.Thread):
     def __init__(self, *args, **kwargs):
         self.__stop = False
         super().__init__(*args, **kwargs)
+        self.gpuDeviceNum = 0
         self.maxGpuUtil = 0
         self.maxGpuMemUsed = 0
 
@@ -79,8 +80,7 @@ class GPUMetricPoller(threading.Thread):
         childWritePipe = os.fdopen(writeFileNo, "w")
 
         smi.nvmlInit()
-        # FIXME: hack - get actual device ID somehow
-        devObj = smi.nvmlDeviceGetHandleByIndex(0)
+        devObj = smi.nvmlDeviceGetHandleByIndex(self.gpuDeviceNum)
         memObj = smi.nvmlDeviceGetMemoryInfo(devObj)
         utilObj = smi.nvmlDeviceGetUtilizationRates(devObj)
         initialMemUsed = memObj.used
@@ -126,8 +126,14 @@ class GPUMetricPoller(threading.Thread):
         self.__stop = True
 
 
-def startGpuMetricPolling():
+def startGpuMetricPolling(gpuDeviceNums):
+    """
+    gpuDeviceNums is a list of ints representing device numbers.  For now, this
+    only supports a single GPU, so only the first int in the list is used.
+    """
     gpuPollObj = GPUMetricPoller()
+    # FIXME: this would be nicer as a proper ctor arg
+    gpuPollObj.gpuDeviceNum = gpuDeviceNums[0]
     gpuPollObj.start()
     return gpuPollObj
 
@@ -136,31 +142,6 @@ def stopGpuMetricPolling(gpuPollObj):
     gpuPollObj.stop()
     gpuPollObj.join()  # consider using timeout and reporting errors
 
-
-"""
-smi.nvmlInit()
-# hack - get actual device ID somehow
-devObj = smi.nvmlDeviceGetHandleByIndex(0)
-memObj = smi.nvmlDeviceGetMemoryInfo(devObj)
-utilObj = smi.nvmlDeviceGetUtilizationRates(devObj)
-initialMemUsed = memObj.used
-initialGpuUtil = utilObj.gpu
-
-while not self.__stop:
-    time.sleep(0.01)
-
-    memObj = smi.nvmlDeviceGetMemoryInfo(devObj)
-    utilObj = smi.nvmlDeviceGetUtilizationRates(devObj)
-
-    memUsed = memObj.used - initialMemUsed
-    gpuUtil = utilObj.gpu - initialGpuUtil
-    if memUsed > self.maxGpuMemUsed:
-        self.maxGpuMemUsed = memUsed
-    if gpuUtil > self.maxGpuUtil:
-        self.maxGpuUtil = gpuUtil
-
-    smi.nvmlShutdown()
-"""
 
 
 # if __name__ == "__main__":

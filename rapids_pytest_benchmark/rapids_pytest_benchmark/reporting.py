@@ -41,9 +41,11 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                     best[prop] = min(bench[prop] for _, bench in progress_reporter(
                         benchmarks, tr, "{line} ({pos}/{total})", line=line) if prop in bench)
 
-            for line, prop in progress_reporter(("outliers", "rounds", "iterations"), tr, "{line}: {value}", line=line):
+            for line, prop in progress_reporter(("outliers", "rounds", "iterations", "gpu_rounds"), tr, "{line}: {value}", line=line):
+                if prop not in bench:
+                    continue
                 worst[prop] = max(benchmark[prop] for _, benchmark in progress_reporter(
-                    benchmarks, tr, "{line} ({pos}/{total})", line=line) if prop in bench)
+                    benchmarks, tr, "{line} ({pos}/{total})", line=line))
 
             unit, adjustment = self.scale_unit(unit='seconds', benchmarks=benchmarks, best=best, worst=worst,
                                                sort=self.sort)
@@ -57,6 +59,7 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                 "stddev": "StdDev",
                 "gpu_mem": "GPU mem",
                 "rounds": "Rounds",
+                "gpu_rounds": "GPU Rounds",
                 "iterations": "Iterations",
                 "iqr": "IQR",
                 "median": "Median",
@@ -70,6 +73,10 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                 "outliers": 2 + max(len(labels["outliers"]), len(str(worst["outliers"]))),
                 "ops": 2 + max(len(labels["ops"]), len(NUMBER_FMT.format(best["ops"] * ops_adjustment))),
             }
+            # gpu_rounds may not be present if user passed --benchmark-gpu-disable
+            if "gpu_rounds" in worst:
+                widths["gpu_rounds"] = 2 + max(len(labels["gpu_rounds"]), len(str(worst["gpu_rounds"])))
+
             for prop in "min", "max", "mean", "stddev", "median", "iqr":
                 widths[prop] = 2 + max(len(labels[prop]), max(
                     len(NUMBER_FMT.format(bench[prop] * adjustment))

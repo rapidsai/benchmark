@@ -1,6 +1,6 @@
 package:
     name: rapids-pytest-benchmark
-    version: 0.0.7dev0
+    version: 0.0.8dev0
 
 source:
     # Actual git_url is: https://github.com/rapidsai/benchmark.git, but using a

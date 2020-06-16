@@ -10,21 +10,20 @@ from pytest_benchmark import stats as pytest_benchmark_stats
 from pytest_benchmark import utils as pytest_benchmark_utils
 from pytest_benchmark import fixture as pytest_benchmark_fixture
 from pytest_benchmark import session as pytest_benchmark_session
+from pytest_benchmark import compat as pytest_benchmark_compat
 import asvdb.utils as asvdbUtils
 from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 from pynvml import smi
 import psutil
 
+from . import __version__
 from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
 from .reporting import GPUTableResults
 
 # FIXME: find a better place to do this and/or a better way
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
-
-
-# FIXME: single-source this to stay syncd with the version in the packaging code
-__version__ = "0.0.7"
+pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_rounds")
 
 
 def pytest_addoption(parser):
@@ -39,6 +38,17 @@ def pytest_addoption(parser):
         "--benchmark-gpu-device",
         metavar="GPU_DEVICENO", default=[0], type=_parseSaveGPUDeviceNum,
         help="GPU device number to observe for GPU metrics."
+    )
+    group.addoption(
+        "--benchmark-gpu-max-rounds", type=_parseGpuMaxRounds,
+        help="Maximum number of rounds to run the test/benchmark during the "
+        "GPU measurement phase. If not provided, will run the same number of "
+        "rounds performed for the runtime measurement."
+    )
+    group.addoption(
+        "--benchmark-gpu-disable", action="store_true", default=False,
+        help="Do not perform GPU measurements when using the gpubenchmark "
+        "fixture, only perform runtime measurements."
     )
     group.addoption(
         "--benchmark-asv-output-dir",
@@ -56,6 +66,21 @@ def pytest_addoption(parser):
         '"commitRepo", "commitBranch", "commitHash", "commitTime", "gpuType", '
         '"cpuType", "arch", "ram", "gpuRam"'
     )
+
+
+def _parseGpuMaxRounds(stringOpt):
+    """
+    Ensures opt passed is a number > 0
+    """
+    if not stringOpt:
+        raise argparse.ArgumentTypeError("Cannot be empty")
+    if stringOpt.isdecimal():
+        num = int(stringOpt)
+        if num == 0:
+            raise argparse.ArgumentTypeError("Must be non-zero")
+    else:
+        raise argparse.ArgumentTypeError("Must be an int > 0")
+    return num
 
 
 def _parseSaveGPUDeviceNum(stringOpt):
@@ -101,8 +126,7 @@ def _parseSaveMetadata(stringOpt):
 
 
 class GPUBenchmarkResults:
-    def __init__(self, runtime, gpuMem, gpuUtil):
-        self.runtime = runtime
+    def __init__(self, gpuMem, gpuUtil):
         self.gpuMem = gpuMem
         self.gpuUtil = gpuUtil
 
@@ -110,19 +134,18 @@ class GPUBenchmarkResults:
 class GPUMetadata(pytest_benchmark_stats.Metadata):
     def __init__(self, fixture, iterations, options, fixtureParamNames=None):
         super().__init__(fixture, iterations, options)
+        # Use an overridden Stats object that also handles GPU metrics
         self.stats = GPUStats()
+        # fixture_param_names is used for reporting, see pytest_sessionfinish()
         self.fixture_param_names = fixtureParamNames
 
-    def update(self, gpuBenchmarkResults):
-        # Assume GPU metrics do not accumulate over multiple runs like runtime does?
-        self.stats.update(gpuBenchmarkResults.runtime / self.iterations,
-                          gpuBenchmarkResults.gpuMem,
-                          gpuBenchmarkResults.gpuUtil)
+    def updateGPUMetrics(self, gpuBenchmarkResults):
+        self.stats.updateGPUMetrics(gpuBenchmarkResults)
 
 
 class GPUStats(pytest_benchmark_stats.Stats):
     fields = (
-        "min", "max", "mean", "stddev", "rounds", "median", "gpu_mem", "gpu_util", "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
+        "min", "max", "mean", "stddev", "rounds", "gpu_rounds", "median", "gpu_mem", "gpu_util", "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
         "outliers", "ld15iqr", "hd15iqr", "ops", "total"
     )
 
@@ -130,17 +153,26 @@ class GPUStats(pytest_benchmark_stats.Stats):
         super().__init__()
         self.gpuData = []
 
-    def update(self, duration, gpuMem, gpuUtil):
-        super().update(duration)
-        self.gpuData.append((gpuMem, gpuUtil))
+    def updateGPUMetrics(self, gpuBenchmarkResults):
+        self.gpuData.append((gpuBenchmarkResults.gpuMem,
+                             gpuBenchmarkResults.gpuUtil))
 
+    # FIXME: this may not need to be here
     def as_dict(self):
         return super().as_dict()
 
     @pytest_benchmark_utils.cached_property
+    def gpu_rounds(self):
+        return len(self.gpuData)
+
+    # Only the max values are available for GPU metrics, since the method with
+    # which they're obtained (polling the GPU) lends itself to missing spikes,
+    # and a min or average really isn't meaningful. The max returned here is
+    # really a lower bound, to be read as "the [mem|gpu] usage was *at least* x"
+    @pytest_benchmark_utils.cached_property
     def gpu_mem(self):
-        #for i in self.gpuData: print(i)
         return max([i[0] for i in self.gpuData])
+
     @pytest_benchmark_utils.cached_property
     def gpu_util(self):
         return max([i[1] for i in self.gpuData])
@@ -149,68 +181,111 @@ class GPUStats(pytest_benchmark_stats.Stats):
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
     def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
-                 gpuDeviceNums=None):
+                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
         self.gpuDeviceNums = gpuDeviceNums or [0]
+        self.gpuMaxRounds = gpuMaxRounds
+        self.gpuDisable = gpuDisable
         self.__timeOnlyRunner = None
 
+
     def __getattr__(self, attr):
+        """
+        Any method or member that is not defined in this class will fall
+        through and be accessed on self.__benchmarkFixtureInstance.  This
+        allows this class to override anything on the previously-instantiated
+        self.__benchmarkFixtureInstance without changing the code that
+        instantiated it in pytest-benchmark.
+        """
         return getattr(self.__benchmarkFixtureInstance, attr)
 
-    def _make_runner(self, function_to_benchmark, args, kwargs):
-        # The benchmark runner returned from BenchmarkFixture._make_runner() is
-        # a function that runs the function_to_benchmark loops_range times in a
-        # loop and returns total timed duration.
-        timeBenchmarkRunner = super()._make_runner(function_to_benchmark,
-                                                   args, kwargs)
-        self.__timeOnlyRunner = timeBenchmarkRunner
 
-        def runner(loops_range, timer=self._timer):
-            # GPU polling increases runtime for code that uses the GPU, so
-            # perform runs to measure runtime separately.
-            # runtime measurement
-            timeRetVal = timeBenchmarkRunner(loops_range, timer)
-
-            # GPU measurements
+    def _make_gpu_runner(self, function_to_benchmark, args, kwargs):
+        """
+        Create a callable that will run the function_to_benchmark with the
+        provided args and kwargs, and wrap it in calls to perform GPU
+        measurements. The resulting callable will return a GPUBenchmarkResults
+        obj containing the measurements.
+        """
+        def runner():
             gpuPollObj = startGpuMetricPolling(self.gpuDeviceNums)
-            time.sleep(0.1)
+            time.sleep(0.1)  # Helps ensure the polling process has started
             try:
                 startTime = time.time()
-                (_, result) = timeBenchmarkRunner(loops_range=0,
-                                                  timer=timer)
+                function_to_benchmark(*args, **kwargs)
                 duration = time.time() - startTime
-                # guarantee a minimum time has passed to ensure GPU metrics have
-                # been taken
+                # Guarantee a minimum time has passed to ensure GPU metrics
+                # have been taken
                 if duration < 0.1:
                     time.sleep(0.1)
 
             finally:
                 stopGpuMetricPolling(gpuPollObj)
 
-            if loops_range:
-                return GPUBenchmarkResults(runtime=timeRetVal,
-                                           gpuMem=gpuPollObj.maxGpuMemUsed,
-                                           gpuUtil=gpuPollObj.maxGpuUtil)
-            else:
-                return (GPUBenchmarkResults(runtime=timeRetVal[0],
-                                            gpuMem=gpuPollObj.maxGpuMemUsed,
-                                            gpuUtil=gpuPollObj.maxGpuUtil),
-                        timeRetVal[1])
+            return GPUBenchmarkResults(gpuMem=gpuPollObj.maxGpuMemUsed,
+                                       gpuUtil=gpuPollObj.maxGpuUtil)
+        return runner
+
+
+    def _run_gpu_measurements(self, function_to_benchmark, args, kwargs):
+        """
+        Run as part of _raw() or _raw_pedantic() to perform GPU measurements.
+        This only runs if benchmarks and gpu benchmarks are enabled.
+        """
+        if self.enabled and not(self.gpuDisable):
+            gpuRunner = self._make_gpu_runner(function_to_benchmark, args, kwargs)
+
+            # Get the number of rounds performed from the runtime measurement
+            rounds = self.stats.stats.rounds
+            assert rounds > 0  # FIXME: do we need this?
+
+            if self.gpuMaxRounds is not None:
+                rounds = min(rounds, self.gpuMaxRounds)
+
+            for _ in pytest_benchmark_compat.XRANGE(rounds):
+                self.stats.updateGPUMetrics(gpuRunner())
 
         # Set the "mode" (regular or pedantic) here rather than override another
         # method. This is needed since cleanup callbacks registered prior to the
         # class override dont see the new value and will print a warning saying
         # a benchmark was run without using a benchmark fixture. The warning is
-        # printed based on if "mode" was ever set or not.
+        # printed based on if mode was ever set or not.
         self.__benchmarkFixtureInstance._mode = self._mode
 
-        return runner
 
-    def _calibrate_timer(self, runner):
-        return super()._calibrate_timer(self.__timeOnlyRunner)
+    def _raw(self, function_to_benchmark, *args, **kwargs):
+        """
+        Run the time measurement as defined in pytest-benchmark, then run GPU
+        metrics separately. Running separately ensures GPU monitoring does not
+        affect runtime perf.
+        """
+        function_result = super()._raw(function_to_benchmark, *args, **kwargs)
+        self._run_gpu_measurements(function_to_benchmark, args, kwargs)
+        return function_result
+
+
+    def _raw_pedantic(self, target, args=(), kwargs=None, setup=None, rounds=1,
+                      warmup_rounds=0, iterations=1):
+        """
+        Run the pedantic time measurement as defined in pytest-benchmark, then
+        run GPU metrics separately. Running separately ensures GPU monitoring
+        does not affect runtime perf.
+        """
+        result = super()._raw_pedantic(target, args, kwargs, setup, rounds,
+                                       warmup_rounds, iterations)
+        self._run_gpu_measurements(function_to_benchmark, args, kwargs)
+        return result
+
 
     def _make_stats(self, iterations):
+        """
+        Overridden method to create a stats object that can be used as-is by
+        pytest-benchmark but also accepts GPU metrics.
+        """
+        if self.gpuDisable:
+            return super()._make_stats(iterations)
+
         bench_stats = GPUMetadata(self,
                                   iterations=iterations,
                                   options={
@@ -220,6 +295,7 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
                                       "max_time": self._max_time,
                                       "min_time": self._min_time,
                                       "warmup": self._warmup,
+                                      "gpu_max_rounds": self.gpuMaxRounds,
                                   },
                                   fixtureParamNames=self.fixture_param_names)
         self._add_stats(bench_stats)
@@ -236,10 +312,19 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
         self.compared_mapping = benchmarkSession.compared_mapping
         self.groups = benchmarkSession.groups
 
+        # Add the GPU columns to the original list in the appropriate order
+        # FIXME: this always adds gpu_* columns, even if the user specified a
+        # list of columns that didn't include those.  This is because the
+        # default list of columns is hardcoded in the pytest-benchmark option
+        # parsing and cannot be overridden without changing pytest-benchmark (I
+        # think?)
         origColumns = self.columns
         self.columns = []
-        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "rounds", "iterations"]:
-            if (c == "gpu_mem") or (c in origColumns):
+        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "rounds", "gpu_rounds", "iterations"]:
+            # Always add gpu_mem (for now), and only add gpu_rounds if rounds was requested.
+            if (c in origColumns) or \
+               (c == "gpu_mem") or \
+               ((c == "gpu_rounds") and ("rounds" in origColumns)):
                 self.columns.append(c)
 
     def __getattr__(self, attr):
@@ -267,9 +352,14 @@ def gpubenchmark(request, benchmark):
     # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
     # FIXME: if no params, do not enforce fixture_param_names check
     gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
-    return GPUBenchmarkFixture(benchmark,
+    gpuMaxRounds = request.config.getoption("benchmark_gpu_max_rounds")
+    gpuDisable = request.config.getoption("benchmark_gpu_disable")
+    return GPUBenchmarkFixture(
+        benchmark,
         fixtureParamNames=request.node.keywords.get("fixture_param_names"),
-        gpuDeviceNums=gpuDeviceNums)
+        gpuDeviceNums=gpuDeviceNums,
+        gpuMaxRounds=gpuMaxRounds,
+        gpuDisable=gpuDisable)
 
 
 ################################################################################
@@ -293,8 +383,8 @@ def _getOSName():
 
 def _getCudaVersion():
     """
-    Get the CUDA version from the DLL if possible, otherwise return None.
-    (is this better than screen scraping nvidia-smi?)
+    Get the CUDA version from the CUDA DLL/.so if possible, otherwise return
+    None. (NOTE: is this better than screen scraping nvidia-smi?)
     """
     try :
         lib = ctypes.CDLL("libcudart.so")
@@ -321,9 +411,9 @@ def _ensureListLike(item):
                 else [item]
 
 
-def _getHierNameFromFullname(benchFullname):
+def _getHierBenchNameFromFullname(benchFullname):
     """
-    Turn a bench name that potentiall looks like this:
+    Turn a bench name that potentially looks like this:
        'foodir/bench_algos.py::BenchStuff::bench_bfs[1-2-False-True]'
     into this:
        'foodir.bench_algos.BenchStuff.bench_bfs'
@@ -400,6 +490,7 @@ def pytest_sessionfinish(session, exitstatus):
                               pythonVer=pythonVer,
                               commitHash=commitHash,
                               commitTime=commitTime,
+                              branch=commitBranch,
                               gpuType=gpuType,
                               cpuType=cpuType,
                               arch=arch,
@@ -407,7 +498,7 @@ def pytest_sessionfinish(session, exitstatus):
                               gpuRam=gpuRam)
 
         for bench in gpuBenchSess.benchmarks:
-            benchName = _getHierNameFromFullname(bench.fullname)
+            benchName = _getHierBenchNameFromFullname(bench.fullname)
             # build the final params dict by extracting them from the
             # bench.params dictionary
             params = {}

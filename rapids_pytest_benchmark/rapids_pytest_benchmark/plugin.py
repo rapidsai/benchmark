@@ -16,6 +16,7 @@ from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 from pynvml import smi
 import psutil
 
+from . import __version__
 from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
 from .reporting import GPUTableResults
 
@@ -23,10 +24,6 @@ from .reporting import GPUTableResults
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_rounds")
-
-
-# FIXME: single-source this to stay syncd with the version in the packaging code
-__version__ = "0.0.7"
 
 
 def pytest_addoption(parser):
@@ -493,6 +490,7 @@ def pytest_sessionfinish(session, exitstatus):
                               pythonVer=pythonVer,
                               commitHash=commitHash,
                               commitTime=commitTime,
+                              branch=commitBranch,
                               gpuType=gpuType,
                               cpuType=cpuType,
                               arch=arch,

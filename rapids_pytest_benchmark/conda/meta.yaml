@@ -1,6 +1,6 @@
 package:
     name: rapids-pytest-benchmark
-    version: 0.0.8dev0
+    version: 0.0.9
 
 source:
     # Actual git_url is: https://github.com/rapidsai/benchmark.git, but using a
@@ -19,14 +19,14 @@ requirements:
         - setuptools
         - pytest-benchmark=3.2.3
         - pynvml
-        - asvdb
+        - asvdb>=0.3.0
         - pygal
 
     run:
         - python
         - pytest-benchmark=3.2.3
         - pynvml
-        - asvdb
+        - asvdb>=0.3.0
         - pygal
 
 test:

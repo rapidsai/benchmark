@@ -1,7 +1,10 @@
 from setuptools import setup
 
+import rapids_pytest_benchmark
+
 setup(
         name="rapids-pytest-benchmark",
+        version=rapids_pytest_benchmark.__version__,
         packages=["rapids_pytest_benchmark"],
         install_requires=["pytest-benchmark", "asvdb", "pynvml", "pygal"],
         # the following makes a plugin available to pytest

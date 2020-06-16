@@ -1,3 +1,5 @@
+__version__ = "0.0.9"
+
 def setFixtureParamNames(request, orderedParamNameList):
     """
     Given a request fixture and a list of param names ordered based on the order

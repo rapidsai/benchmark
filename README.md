@@ -12,7 +12,7 @@ Review [CONTRIBUTING.md](CONTRIBUTING.md) for details about the benchmarking inf
 * Developers analyze results using the reporting capability of GBench and pytest, or using ASV through the use of the `rapids-pytest-benchmark` `--benchmark-asv-*` options (for python) or a script that converts GBench JSON output for use with ASV (for C++).
 ### Continuous Benchmarking (CB) - _not fully supported, still WIP_
 * Similar in concept to CI, CB runs the repo's benchmark suite (or a subset of it) on a PR to help catch regressions prior to merging
-* CB will run the same benchmark code used for the Developer Desktop use case using the same tools (python use `pytest` + `rapids-pytest-plugin`, C++ uses `GBench` + an output conversion script.)
+* CB will run the same benchmark code used for the Developer Desktop use case using the same tools (python use `pytest` + `rapids-pytest-benchmark`, C++ uses `GBench` + an output conversion script.)
 * CB will update an ASV plot containing only points from the last nightly run and the last release for comparison, then data will be added for each commit within the PR. This will allow a dev to see the affects of their PR changes and give them the opportunity to fix a regression prior to merging.
 * CB can be configured to optionally fail a PR if performance degraded beyond an allowable tolerance (configured by the devs)
 ### Nightly Benchmarking

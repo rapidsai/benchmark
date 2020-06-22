@@ -18,6 +18,13 @@ into three categories:
     - If you need more context on a particular issue, please ask and we shall
     provide.
 
+## Maintainer's document
+
+As part of understanding the code in preparation for contributing, a
+[maintainer's document](MAINTAINERS.md) is provided which covers the
+implementation details and design considerations. Please familiarize yourself
+with this before spending time on a contribution.
+
 ## Code contributions
 
 ### Your first issue

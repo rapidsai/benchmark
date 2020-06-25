@@ -18,7 +18,7 @@ In no particular order, this covers implementation details and common maintenanc
 
 
 ## asvdb design decisions
-- `[asvdb`](https://github.com/rapidsai/asvdb) is a Python module (and CLI tool) that encapsulates the implementation details of how ASV stores results, allowing other tools in a benchmarking workflow to take advantage of ASV reporting without having to implement their own ASV-compatible data generation.
+- [`asvdb`](https://github.com/rapidsai/asvdb) is a Python module (and CLI tool) that encapsulates the implementation details of how ASV stores results, allowing other tools in a benchmarking workflow to take advantage of ASV reporting without having to implement their own ASV-compatible data generation.
 - One approach looked into for this was to pull out the individual classes in `asv` responsible for reading and writing the ASV "database" and use those directly.
   - This was initially rejected because:
     - It would either require a copy-and-past fork of specific classes which are not optimized for this use case, or an added dependency on the entire `asv` package.

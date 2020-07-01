@@ -12,8 +12,6 @@ build:
     number: {{ git_revision_count }}
     script: python setup.py install
     noarch: python
-    ignore_run_exports:
-        - python_abi
 
 requirements:
 

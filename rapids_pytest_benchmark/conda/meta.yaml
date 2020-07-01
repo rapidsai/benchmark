@@ -6,8 +6,6 @@ package:
     version: {{ version }}
 
 source:
-    # Actual git_url is: https://github.com/rapidsai/benchmark.git, but using a
-    # relative path to build from sources here.
     path: ..
 
 build:
@@ -19,7 +17,7 @@ requirements:
 
     # The runtime deps are also needed for build because setup.py lists them and
     # will try to download from pypi during the build step if not installed.
-    build:
+    host:
         - python
         - setuptools
         - pytest-benchmark=3.2.3

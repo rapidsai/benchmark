@@ -62,7 +62,6 @@ def getSysInfo():
 
 
 def genBenchmarkJSON(db, sys_info, fileList, repoName):
-    benchmark_dict = {}
     pattern = re.compile(r"([^\/]+)")
 
     for file in fileList:

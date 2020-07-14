@@ -8,6 +8,7 @@ import platform
 import psutil
 
 from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
+from pynvml import smi
 
 # USAGE:
 #
@@ -40,13 +41,18 @@ def getCommandOutput(cmd):
 
 
 def getSysInfo():
+    # Use Node Label from Jenkins if possible
+    label = os.environ.get('ASV_LABEL')
+    if label == None:
+        label = uname.machine
+
     uname = platform.uname()
     commitHash = getCommandOutput("git rev-parse HEAD")
     commitTime = getCommandOutput("git log -n1 --pretty=%%ct %s" % commitHash)
     commitTime = str(int(commitTime)*1000)  # ASV wants commit to be in milliseconds
 
     bInfo = BenchmarkInfo(
-                machineName=uname.machine,
+                machineName=label,
                 cudaVer=getCommandOutput("nvcc --version | grep release | awk '{print $5}' | tr -d ,"),
                 osType="%s %s" % (uname.system, uname.release),
                 pythonVer=platform.python_version(),

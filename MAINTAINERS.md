@@ -46,8 +46,8 @@ In no particular order, this covers implementation details and common maintenanc
 
 
 ## ops-utils repo tools
-- For convenience, the benchmark jobs use tools in the [`ops-utils` repo](https://github.com/rapidsai/ops-utils/tree/master/benchmark), in particular the `updateJenkinsReport.py` script for creating the nightly overview report.
-- Another useful script in this repo is one which can return the exact nightly conda package that was used with a particular commit, called [getNearestCondaPackages.py](https://github.com/rapidsai/ops-utils/blob/master/benchmark/getNearestCondaPackages.py)
+- For convenience, the benchmark jobs use tools in the [`ops-utils` repo](https://github.com/rapidsai/ops-utils/tree/main/benchmark), in particular the `updateJenkinsReport.py` script for creating the nightly overview report.
+- Another useful script in this repo is one which can return the exact nightly conda package that was used with a particular commit, called [getNearestCondaPackages.py](https://github.com/rapidsai/ops-utils/blob/main/benchmark/getNearestCondaPackages.py)
 
 
 ## Jenkins jobs overview

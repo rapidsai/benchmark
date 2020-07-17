@@ -471,7 +471,7 @@ def pytest_sessionfinish(session, exitstatus):
         commitTime = asvMetadata.get("commitTime", commitTime)
         commitRepo = asvMetadata.get("commitRepo", commitRepo)
         commitBranch = asvMetadata.get("commitBranch", commitBranch)
-        requirements = json.loads(asvMetadata.get("requirements", "{}"))
+        requirements = asvMetadata.get("requirements", "{}")
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
@@ -501,9 +501,10 @@ def pytest_sessionfinish(session, exitstatus):
         for bench in gpuBenchSess.benchmarks:
             benchName = _getHierBenchNameFromFullname(bench.fullname)
             # build the final params dict by extracting them from the
-            # bench.params dictionary
+            # bench.params dictionary. Not all benchmarks are parameterized
             params = {}
-            for (paramName, paramVal) in bench.params.items():
+            bench_params = bench.params.items() if bench.params is not None else []
+            for (paramName, paramVal) in bench_params:
                 # If the params are coming from a fixture, handle them
                 # differently since they will (should be) stored in a special
                 # variable accessible with the name of the fixture.

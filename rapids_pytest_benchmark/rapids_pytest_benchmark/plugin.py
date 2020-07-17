@@ -472,6 +472,7 @@ def pytest_sessionfinish(session, exitstatus):
         commitTime = asvMetadata.get("commitTime", commitTime)
         commitRepo = asvMetadata.get("commitRepo", commitRepo)
         commitBranch = asvMetadata.get("commitBranch", commitBranch)
+        requirements = asvMetadata.get("requirements")
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
@@ -495,7 +496,8 @@ def pytest_sessionfinish(session, exitstatus):
                               cpuType=cpuType,
                               arch=arch,
                               ram=ram,
-                              gpuRam=gpuRam)
+                              gpuRam=gpuRam,
+                              requirements=requirements)
 
         for bench in gpuBenchSess.benchmarks:
             benchName = _getHierBenchNameFromFullname(bench.fullname)

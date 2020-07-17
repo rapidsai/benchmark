@@ -10,7 +10,7 @@ source:
 
 build:
     number: {{ git_revision_count }}
-    script: {{ PYTHON }} -m pip install . --no-deps
+    script: python setup.py install
     noarch: python
 
 requirements:

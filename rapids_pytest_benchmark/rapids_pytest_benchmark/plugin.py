@@ -4,6 +4,7 @@ import platform
 import ctypes
 import argparse
 import subprocess
+import json
 
 import pytest
 from pytest_benchmark import stats as pytest_benchmark_stats
@@ -472,7 +473,7 @@ def pytest_sessionfinish(session, exitstatus):
         commitTime = asvMetadata.get("commitTime", commitTime)
         commitRepo = asvMetadata.get("commitRepo", commitRepo)
         commitBranch = asvMetadata.get("commitBranch", commitBranch)
-        requirements = asvMetadata.get("requirements")
+        requirements = json.loads(asvMetadata.get("requirements")) if "requirements" in asvMetadata else None
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",

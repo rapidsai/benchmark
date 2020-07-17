@@ -2,7 +2,7 @@
 
 ## New Features
 
-- ...
+- PR #45 - Add capability to parse `requirements` metadata field
 
 ## Improvements
 

@@ -43,13 +43,15 @@ def getCommandOutput(cmd):
 def getSysInfo():
     # Use Node Label from Jenkins if possible
     label = os.environ.get('ASV_LABEL')
+    uname = platform.uname()
     if label == None:
         label = uname.machine
 
-    uname = platform.uname()
     commitHash = getCommandOutput("git rev-parse HEAD")
     commitTime = getCommandOutput("git log -n1 --pretty=%%ct %s" % commitHash)
     commitTime = str(int(commitTime)*1000)  # ASV wants commit to be in milliseconds
+    gpuDeviceNums = [0]
+    gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(gpuDeviceNums[0])
 
     bInfo = BenchmarkInfo(
                 machineName=label,
@@ -58,14 +60,13 @@ def getSysInfo():
                 pythonVer=platform.python_version(),
                 commitHash=commitHash,
                 commitTime=commitTime,
-                gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode()),
+                gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode(),
                 cpuType=uname.processor,
                 arch=uname.machine,
                 ram="%d" % psutil.virtual_memory().total
             )
 
     return bInfo
-
 
 def genBenchmarkJSON(db, sys_info, fileList, repoName):
     pattern = re.compile(r"([^\/]+)")
@@ -137,4 +138,3 @@ def main(args):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
-

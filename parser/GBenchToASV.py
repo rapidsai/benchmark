@@ -58,7 +58,7 @@ def getSysInfo():
                 pythonVer=platform.python_version(),
                 commitHash=commitHash,
                 commitTime=commitTime,
-                gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode()),
+                gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode(),
                 cpuType=uname.processor,
                 arch=uname.machine,
                 ram="%d" % psutil.virtual_memory().total

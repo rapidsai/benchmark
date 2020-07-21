@@ -23,6 +23,7 @@ def build_argparse():
     parser.add_argument('-n', nargs=1, help='Repository Name')
     parser.add_argument('-t', nargs=1, help='Target Directory for JSON')
     parser.add_argument('-b', nargs=1, help='Branch Name')
+    parser.add_argument('-r', nargs=1, help='Requirements metadata in JSON format')
     return parser
 
 
@@ -40,7 +41,7 @@ def getCommandOutput(cmd):
                        % (cmd, stdout, stderr))
 
 
-def getSysInfo():
+def getSysInfo(requirements):
     # Use Node Label from Jenkins if possible
     label = os.environ.get('ASV_LABEL')
     uname = platform.uname()
@@ -63,7 +64,8 @@ def getSysInfo():
                 gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode(),
                 cpuType=uname.processor,
                 arch=uname.machine,
-                ram="%d" % psutil.virtual_memory().total
+                ram="%d" % psutil.virtual_memory().total,
+                requirements=requirements
             )
 
     return bInfo
@@ -121,6 +123,7 @@ def main(args):
     repoName = ns.n[0]
     outputDir = ns.t[0]
     branchName = ns.b[0]
+    requirements = json.loads(ns.r[0])
 
     gbenchFileList = os.listdir(testResultDir)
     db = ASVDb(outputDir, repoName, [branchName])
@@ -133,7 +136,7 @@ def main(args):
         gbenchFileList[i] = f"{testResultDir}/{val}"
 
     smi.nvmlInit()
-    system_info = getSysInfo()
+    system_info = getSysInfo(requirements)
     genBenchmarkJSON(db, system_info, gbenchFileList, repoName)
 
 

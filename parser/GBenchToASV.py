@@ -23,7 +23,7 @@ def build_argparse():
     parser.add_argument('-n', nargs=1, help='Repository Name')
     parser.add_argument('-t', nargs=1, help='Target Directory for JSON')
     parser.add_argument('-b', nargs=1, help='Branch Name')
-    parser.add_argument('-r', nargs=1, help='Requirements metadata in JSON format')
+    parser.add_argument('-r', nargs=1, help='Requirements metadata in JSON format', default=['{}'])
     return parser
 
 

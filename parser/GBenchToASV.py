@@ -124,7 +124,7 @@ def main(args):
 
     gbenchFileList = os.listdir(testResultDir)
     db = ASVDb(outputDir, repoName, [branchName])
-    
+   
     for each in gbenchFileList:
         if not ".json" in each:
             gbenchFileList.remove(each)
@@ -132,6 +132,7 @@ def main(args):
     for i,val in enumerate(gbenchFileList):
         gbenchFileList[i] = f"{testResultDir}/{val}"
 
+    smi.nvmlInit()
     system_info = getSysInfo()
     genBenchmarkJSON(db, system_info, gbenchFileList, repoName)
 

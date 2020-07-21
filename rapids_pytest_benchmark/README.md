@@ -4,6 +4,14 @@
 
 Unfortunately, at the time of this writing, none of the hooks provided by `pytest-benchmark` were helpful. However, the longer-term plan is to upstream new `pytest-benchmark` hooks that allow for all the `rapids-pytest-benchmark` functionality to be provided by hooks.  This is greatly preferred as a proper extension technique, since importing and subclassing another plugin's classes directly is a much more fragile technique, since an update to the "parent" plugin could change class APIs and cause breakages. _Note: the conda recipe specifies exactly `pytest-benchmark=3.2.3` to ensure compatibility with the internal class API_
 
+## Installation
+
+`rapids-pytest-benchmark` is available on [conda](https://anaconda.org/rapidsai/rapids-pytest-benchmark) and can be installed with the following command:
+
+```sh
+conda install -c rapidsai rapids-pytest-benchmark
+```
+
 ## How to use `rapids-pytest-benchmark`
 - Install it and confirm that the `--benchmark-gpu-*` and `--benchmark-asv-*` options are shown in `pytest --help`
 - Add the `gpubenchmark` fixture to your tests/benchmarks, just as one would do with the `benchmark` fixture described [here](https://pytest-benchmark.readthedocs.io/en/latest/usage.html)

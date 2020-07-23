@@ -23,7 +23,6 @@ def build_argparse():
     parser.add_argument('-n', nargs=1, help='Repository Name')
     parser.add_argument('-t', nargs=1, help='Target Directory for JSON')
     parser.add_argument('-b', nargs=1, help='Branch Name')
-    parser.add_argument('-o', nargs=1, help='Repo Override')
     parser.add_argument('-r', nargs=1, help='Requirements metadata in JSON format', default=['{}'])
     return parser
 
@@ -122,17 +121,14 @@ def main(args):
     ns = build_argparse().parse_args(args)
     testResultDir = ns.d[0]
     repoName = ns.n[0]
-    repoOverride = ns.o[0]
     outputDir = ns.t[0]
     branchName = ns.b[0]
     requirements = json.loads(ns.r[0])
 
     gbenchFileList = os.listdir(testResultDir)
-    
-    if repoOverride != None:
-        db = ASVDb(outputDir, repoOverride, [branchName])
-    else:
-        db = ASVDb(outputDir, repoName, [branchName])
+    repoUrl = getCommandOutput("git remote -v").split("\n")[-1].split()[1]
+
+    db = ASVDb(outputDir, repoUrl, [branchName])
 
     for each in gbenchFileList:
         if not ".json" in each:

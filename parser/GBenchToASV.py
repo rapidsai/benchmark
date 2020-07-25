@@ -80,6 +80,7 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
         for each in tests:
             name_and_params = pattern.findall(each["name"])
             name = repoName + "." + name_and_params[0]
+            name = name.replace("<","[").replace(">","]")
             test_params = name_and_params[1:]
 
             # Get max number of parameters for each benchmark
@@ -93,6 +94,7 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
             #Get Benchmark Name and Test Parameters
             name_and_params = pattern.findall(each["name"])
             name = repoName + "." + name_and_params[0]
+            name = name.replace("<","[").replace(">","]")
             test_params = name_and_params[1:]
             param_values = []
 

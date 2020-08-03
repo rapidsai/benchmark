@@ -176,7 +176,7 @@ TBD
 ## Using asvdb from python and the command line
 [`asvdb`](https://github.com/rapidsai/asvdb) is a library and command-line utility for reading and writing benchmark results from/to an ASV "database" as described [here](https://asv.readthedocs.io/en/stable/dev.html?highlight=%24results_dir#benchmark-suite-layout-and-file-formats).
 * `asvdb` is a key component in the benchmark infrastructure suite in that it is the destination for benchmark results measured by the developer's benchmark code, and the source of data for the benchmarking report tools (in this case just ASV).
-* Several examples for both reading and writing a database using the CLI and the API are available [here](https://github.com/rapidsai/asvdb/blob/master/README.md)
+* Several examples for both reading and writing a database using the CLI and the API are available [here](https://github.com/rapidsai/asvdb/blob/main/README.md)
 
 
 ## Benchmarking old commits

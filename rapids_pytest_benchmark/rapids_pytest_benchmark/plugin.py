@@ -4,6 +4,7 @@ import platform
 import ctypes
 import argparse
 import subprocess
+import json
 
 import pytest
 from pytest_benchmark import stats as pytest_benchmark_stats
@@ -59,12 +60,12 @@ def pytest_addoption(parser):
         "--benchmark-asv-metadata",
         metavar="ASV_DB_METADATA",
         default={}, type=_parseSaveMetadata,
-        help='Metadata to be included in the ASV report. For example: '
-        '"machineName=my_machine2000, gpuType=FastGPU3, arch=x86_64". If not '
+        help='Metadata to be included in the ASV report in JSON format. For example: '
+        '{"machineName":"my_machine2000", "gpuType":"FastGPU3", "arch":"x86_64"}. If not '
         'provided, best-guess values will be derived from the environment. '
         'Valid metadata is: "machineName", "cudaVer", "osType", "pythonVer", '
         '"commitRepo", "commitBranch", "commitHash", "commitTime", "gpuType", '
-        '"cpuType", "arch", "ram", "gpuRam"'
+        '"cpuType", "arch", "ram", "gpuRam", "requirements"'
     )
 
 
@@ -105,21 +106,19 @@ def _parseSaveGPUDeviceNum(stringOpt):
 
 def _parseSaveMetadata(stringOpt):
     """
-    Given a string like "foo=bar, baz=44" return {'foo':'bar', 'baz':44}
+    Convert JSON input to Python dictionary
     """
     if not stringOpt:
         raise argparse.ArgumentTypeError("Cannot be empty")
 
     validVars = ["machineName", "cudaVer", "osType", "pythonVer",
                  "commitRepo", "commitBranch", "commitHash", "commitTime",
-                 "gpuType", "cpuType", "arch", "ram", "gpuRam"]
-    retDict = {}
+                 "gpuType", "cpuType", "arch", "ram", "gpuRam", "requirements"]
 
-    for pair in stringOpt.split(","):
-        (var, value) = [i.strip() for i in pair.split("=")]
-        if var in validVars:
-            retDict[var.strip()] = str(value.strip())
-        else:
+    retDict = json.loads(stringOpt)
+
+    for key in retDict.keys():
+        if key not in validVars:
             raise argparse.ArgumentTypeError(f'invalid metadata var: "{var}"')
 
     return retDict
@@ -472,6 +471,7 @@ def pytest_sessionfinish(session, exitstatus):
         commitTime = asvMetadata.get("commitTime", commitTime)
         commitRepo = asvMetadata.get("commitRepo", commitRepo)
         commitBranch = asvMetadata.get("commitBranch", commitBranch)
+        requirements = asvMetadata.get("requirements", "{}")
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
@@ -495,14 +495,16 @@ def pytest_sessionfinish(session, exitstatus):
                               cpuType=cpuType,
                               arch=arch,
                               ram=ram,
-                              gpuRam=gpuRam)
+                              gpuRam=gpuRam,
+                              requirements=requirements)
 
         for bench in gpuBenchSess.benchmarks:
             benchName = _getHierBenchNameFromFullname(bench.fullname)
             # build the final params dict by extracting them from the
-            # bench.params dictionary
+            # bench.params dictionary. Not all benchmarks are parameterized
             params = {}
-            for (paramName, paramVal) in bench.params.items():
+            bench_params = bench.params.items() if bench.params is not None else []
+            for (paramName, paramVal) in bench_params:
                 # If the params are coming from a fixture, handle them
                 # differently since they will (should be) stored in a special
                 # variable accessible with the name of the fixture.

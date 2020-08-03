@@ -1,16 +1,14 @@
-{% set version = load_setup_py_data(setup_file='rapids_pytest_benchmark/setup.py').get('version') %}
-{% set git_revision_count=environ.get('GIT_DESCRIBE_NUMBER', 0) %}
+{% set version = load_setup_py_data().get('version') %}
 
 package:
     name: rapids-pytest-benchmark
     version: {{ version }}
 
 source:
-    path: ../../
+    path: ..
 
 build:
-    number: {{ git_revision_count }}
-    script: {{ PYTHON }} -m pip install ./rapids_pytest_benchmark --no-deps
+    script: {{ PYTHON }} -m pip install . --no-deps
     noarch: python
 
 requirements:
@@ -24,6 +22,7 @@ requirements:
         - pynvml
         - asvdb>=0.3.0
         - pygal
+        - psutil
 
 test:
     imports:

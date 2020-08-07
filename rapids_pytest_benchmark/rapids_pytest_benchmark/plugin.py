@@ -430,9 +430,6 @@ def _getHierBenchNameFromFullname(benchFullname):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if exitstatus != 0:
-        return
-
     gpuBenchSess = session.config._gpubenchmarksession
     config = session.config
     asvOutputDir = config.getoption("benchmark_asv_output_dir")

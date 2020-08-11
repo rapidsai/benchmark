@@ -70,8 +70,9 @@ def getSysInfo(requirements):
 
     return bInfo
 
-def genBenchmarkJSON(db, sys_info, fileList, repoName):
+def genBenchmarkResults(fileList, repoName):
     pattern = re.compile(r"([^\/]+)")
+    benchResults = []
 
     for file in fileList:
         with open(file, 'r') as in_file:
@@ -112,11 +113,19 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
             elif "rms" in each:
                 bench_result = each["rms"]
 
+            if "time_unit" in each:
+                time_unit = each["time_unit"]
+            else:
+                time_unit = "seconds"
+
             bResult = BenchmarkResult(funcName=name,
                                       argNameValuePairs=param_values,
-                                      result=bench_result)
+                                      result=bench_result,
+                                      unit=time_unit)
             
-            db.addResult(sys_info, bResult)
+            benchResults.append(bResult)
+        
+    return benchResults
 
 
 def main(args):
@@ -141,8 +150,8 @@ def main(args):
 
     smi.nvmlInit()
     system_info = getSysInfo(requirements)
-    genBenchmarkJSON(db, system_info, gbenchFileList, repoName)
-
+    resultList = genBenchmarkResults(gbenchFileList, repoName)
+    db.addResults(system_info, resultList)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

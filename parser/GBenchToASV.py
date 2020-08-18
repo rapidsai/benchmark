@@ -117,11 +117,23 @@ def genBenchmarkResults(fileList, repoName):
                 time_unit = each["time_unit"]
             else:
                 time_unit = "seconds"
-
-            bResult = BenchmarkResult(funcName=name,
-                                      argNameValuePairs=param_values,
-                                      result=bench_result,
-                                      unit=time_unit)
+            
+            #Check if benchmark logged throughput
+            if "bytes_per_second" in each:
+                bResult = BenchmarkResult(
+                    funcName=name+"_mem",
+                    argNameValuePairs=param_values,
+                    result=each["bytes_per_second"],
+                    unit="bps"
+                )
+                benchResults.append(bResult)
+            
+            bResult = BenchmarkResult(
+                funcName=name,
+                argNameValuePairs=param_values,
+                result=bench_result,
+                unit=time_unit
+            )
             
             benchResults.append(bResult)
         

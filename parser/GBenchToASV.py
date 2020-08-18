@@ -121,7 +121,7 @@ def genBenchmarkResults(fileList, repoName):
             #Check if benchmark logged throughput
             if "bytes_per_second" in each:
                 bResult = BenchmarkResult(
-                    funcName=name+"_mem",
+                    funcName=name+"_throughput",
                     argNameValuePairs=param_values,
                     result=each["bytes_per_second"],
                     unit="bps"

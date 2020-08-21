@@ -430,9 +430,6 @@ def _getHierBenchNameFromFullname(benchFullname):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if exitstatus != 0:
-        return
-
     gpuBenchSess = session.config._gpubenchmarksession
     config = session.config
     asvOutputDir = config.getoption("benchmark_asv_output_dir")
@@ -531,7 +528,8 @@ def pytest_sessionfinish(session, exitstatus):
             bench.stats.mean
             getattr(bench.stats, "gpu_mem", None)
             getattr(bench.stats, "gpu_util", None)
-
+            
+            resultList = []
             for statType in ["mean", "gpu_mem", "gpu_util"]:
                 bn = "%s_%s" % (benchName, suffixDict[statType])
                 val = getattr(bench.stats, statType, None)
@@ -540,7 +538,9 @@ def pytest_sessionfinish(session, exitstatus):
                                               argNameValuePairs=list(params.items()),
                                               result=val)
                     bResult.unit = unitsDict[statType]
-                    db.addResult(bInfo, bResult)
+                    resultList.append(bResult)
+            
+            db.addResults(bInfo, resultList)
 
 
 def pytest_report_header(config):

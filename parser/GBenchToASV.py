@@ -23,6 +23,7 @@ def build_argparse():
     parser.add_argument('-n', nargs=1, help='Repository Name')
     parser.add_argument('-t', nargs=1, help='Target Directory for JSON')
     parser.add_argument('-b', nargs=1, help='Branch Name')
+    parser.add_argument('-r', nargs=1, help='Requirements metadata in JSON format', default=['{}'])
     return parser
 
 
@@ -40,7 +41,7 @@ def getCommandOutput(cmd):
                        % (cmd, stdout, stderr))
 
 
-def getSysInfo():
+def getSysInfo(requirements):
     # Use Node Label from Jenkins if possible
     label = os.environ.get('ASV_LABEL')
     uname = platform.uname()
@@ -63,13 +64,15 @@ def getSysInfo():
                 gpuType=smi.nvmlDeviceGetName(gpuDeviceHandle).decode(),
                 cpuType=uname.processor,
                 arch=uname.machine,
-                ram="%d" % psutil.virtual_memory().total
+                ram="%d" % psutil.virtual_memory().total,
+                requirements=requirements
             )
 
     return bInfo
 
-def genBenchmarkJSON(db, sys_info, fileList, repoName):
+def genBenchmarkResults(fileList, repoName):
     pattern = re.compile(r"([^\/]+)")
+    benchResults = []
 
     for file in fileList:
         with open(file, 'r') as in_file:
@@ -80,7 +83,7 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
         for each in tests:
             name_and_params = pattern.findall(each["name"])
             name = repoName + "." + name_and_params[0]
-            name = name.replace("<","[").replace(">","]")
+            name = name.replace("<","[").replace(">","]").replace("::", "_")
             test_params = name_and_params[1:]
 
             # Get max number of parameters for each benchmark
@@ -94,7 +97,7 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
             #Get Benchmark Name and Test Parameters
             name_and_params = pattern.findall(each["name"])
             name = repoName + "." + name_and_params[0]
-            name = name.replace("<","[").replace(">","]")
+            name = name.replace("<","[").replace(">","]").replace("::", "_")
             test_params = name_and_params[1:]
             param_values = []
 
@@ -110,11 +113,31 @@ def genBenchmarkJSON(db, sys_info, fileList, repoName):
             elif "rms" in each:
                 bench_result = each["rms"]
 
-            bResult = BenchmarkResult(funcName=name,
-                                      argNameValuePairs=param_values,
-                                      result=bench_result)
+            if "time_unit" in each:
+                time_unit = each["time_unit"]
+            else:
+                time_unit = "seconds"
             
-            db.addResult(sys_info, bResult)
+            #Check if benchmark logged throughput
+            if "bytes_per_second" in each:
+                bResult = BenchmarkResult(
+                    funcName=name+"_throughput",
+                    argNameValuePairs=param_values,
+                    result=each["bytes_per_second"],
+                    unit="bps"
+                )
+                benchResults.append(bResult)
+            
+            bResult = BenchmarkResult(
+                funcName=name,
+                argNameValuePairs=param_values,
+                result=bench_result,
+                unit=time_unit
+            )
+            
+            benchResults.append(bResult)
+        
+    return benchResults
 
 
 def main(args):
@@ -123,10 +146,13 @@ def main(args):
     repoName = ns.n[0]
     outputDir = ns.t[0]
     branchName = ns.b[0]
+    requirements = json.loads(ns.r[0])
 
     gbenchFileList = os.listdir(testResultDir)
-    db = ASVDb(outputDir, repoName, [branchName])
-    
+    repoUrl = getCommandOutput("git remote -v").split("\n")[-1].split()[1]
+
+    db = ASVDb(outputDir, repoUrl, [branchName])
+
     for each in gbenchFileList:
         if not ".json" in each:
             gbenchFileList.remove(each)
@@ -134,9 +160,10 @@ def main(args):
     for i,val in enumerate(gbenchFileList):
         gbenchFileList[i] = f"{testResultDir}/{val}"
 
-    system_info = getSysInfo()
-    genBenchmarkJSON(db, system_info, gbenchFileList, repoName)
-
+    smi.nvmlInit()
+    system_info = getSysInfo(requirements)
+    resultList = genBenchmarkResults(gbenchFileList, repoName)
+    db.addResults(system_info, resultList)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

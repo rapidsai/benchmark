@@ -1,5 +1,4 @@
 {% set version = load_setup_py_data().get('version') %}
-{% set git_revision_count=environ.get('GIT_DESCRIBE_NUMBER', 0) %}
 
 package:
     name: rapids-pytest-benchmark
@@ -9,21 +8,13 @@ source:
     path: ..
 
 build:
-    number: {{ git_revision_count }}
-    script: python setup.py install
+    script: {{ PYTHON }} -m pip install . --no-deps
     noarch: python
 
 requirements:
 
-    # The runtime deps are also needed for build because setup.py lists them and
-    # will try to download from pypi during the build step if not installed.
     host:
         - python
-        - setuptools
-        - pytest-benchmark=3.2.3
-        - pynvml
-        - asvdb>=0.3.0
-        - pygal
 
     run:
         - python
@@ -31,6 +22,7 @@ requirements:
         - pynvml
         - asvdb>=0.3.0
         - pygal
+        - psutil
 
 test:
     imports:

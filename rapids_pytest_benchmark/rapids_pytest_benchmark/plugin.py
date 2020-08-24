@@ -49,7 +49,12 @@ def pytest_addoption(parser):
     group.addoption(
         "--benchmark-gpu-disable", action="store_true", default=False,
         help="Do not perform GPU measurements when using the gpubenchmark "
-        "fixture, only perform runtime measurements."
+        "fixture, only perform other enabled measurements."
+    )
+    group.addoption(
+        "--benchmark-custom-metrics-disable", action="store_true", default=False,
+        help="Do not perform custom metrics measurements when using the "
+        "gpubenchmark fixture, only perform other enabled measurements."
     )
     group.addoption(
         "--benchmark-asv-output-dir",
@@ -141,6 +146,9 @@ class GPUMetadata(pytest_benchmark_stats.Metadata):
     def updateGPUMetrics(self, gpuBenchmarkResults):
         self.stats.updateGPUMetrics(gpuBenchmarkResults)
 
+    def updateCustomMetric(self, result, name, unitString):
+        self.stats.updateCustomMetric(result, name, unitString)
+
 
 class GPUStats(pytest_benchmark_stats.Stats):
     fields = (
@@ -151,10 +159,25 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def __init__(self):
         super().__init__()
         self.gpuData = []
+        self.__customMetrics = {}
+
 
     def updateGPUMetrics(self, gpuBenchmarkResults):
         self.gpuData.append((gpuBenchmarkResults.gpuMem,
                              gpuBenchmarkResults.gpuUtil))
+
+
+    def updateCustomMetric(self, result, name, unitString):
+        self.__customMetrics[name] = (result, unitString)
+
+
+    def getCustomMetricNames(self):
+        return list(self.__customMetrics.keys())
+
+
+    def getCustomMetric(self, name):
+        return self.__customMetrics[name]
+
 
     # FIXME: this may not need to be here
     def as_dict(self):
@@ -180,13 +203,16 @@ class GPUStats(pytest_benchmark_stats.Stats):
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
     def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
-                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False):
+                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False,
+                 customMetricsDisable=False):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
         self.gpuDeviceNums = gpuDeviceNums or [0]
         self.gpuMaxRounds = gpuMaxRounds
         self.gpuDisable = gpuDisable
+        self.customMetricsDisable = customMetricsDisable
         self.__timeOnlyRunner = None
+        self.__customMetricsDict = {}
 
 
     def __getattr__(self, attr):
@@ -253,6 +279,15 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         self.__benchmarkFixtureInstance._mode = self._mode
 
 
+    def _run_custom_measurements(self, function_result):
+        if self.enabled and not(self.customMetricsDisable):
+            for (metic_name, (metric_callable, metric_unit_string)) in \
+                self.__customMetricsDict.items():
+                self.stats.updateCustomMetric(
+                    metric_callable(function_result),
+                    metic_name, metric_unit_string)
+
+
     def _raw(self, function_to_benchmark, *args, **kwargs):
         """
         Run the time measurement as defined in pytest-benchmark, then run GPU
@@ -261,6 +296,7 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         """
         function_result = super()._raw(function_to_benchmark, *args, **kwargs)
         self._run_gpu_measurements(function_to_benchmark, args, kwargs)
+        self._run_custom_measurements(function_result)
         return function_result
 
 
@@ -274,6 +310,7 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         result = super()._raw_pedantic(target, args, kwargs, setup, rounds,
                                        warmup_rounds, iterations)
         self._run_gpu_measurements(function_to_benchmark, args, kwargs)
+        self._run_custom_measurements(function_result)
         return result
 
 
@@ -300,6 +337,16 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         self._add_stats(bench_stats)
         self.stats = bench_stats
         return bench_stats
+
+
+    def addMetric(self, metric_callable, metric_name, metric_unit_string):
+        """
+        Adds a custom metric to the set of metrics gathered as part of this
+        benchmark run.  When the benchmark is run, the metric_callable will also
+        be run and the return value will be stored under the name metric_name.
+        """
+        self.__customMetricsDict[metric_name] = (metric_callable,
+                                                 metric_unit_string)
 
 
 class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
@@ -353,12 +400,14 @@ def gpubenchmark(request, benchmark):
     gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
     gpuMaxRounds = request.config.getoption("benchmark_gpu_max_rounds")
     gpuDisable = request.config.getoption("benchmark_gpu_disable")
+    customMetricsDisable = request.config.getoption("benchmark_custom_metrics_disable")
     return GPUBenchmarkFixture(
         benchmark,
         fixtureParamNames=request.node.keywords.get("fixture_param_names"),
         gpuDeviceNums=gpuDeviceNums,
         gpuMaxRounds=gpuMaxRounds,
-        gpuDisable=gpuDisable)
+        gpuDisable=gpuDisable,
+        customMetricsDisable=customMetricsDisable)
 
 
 ################################################################################
@@ -528,7 +577,7 @@ def pytest_sessionfinish(session, exitstatus):
             bench.stats.mean
             getattr(bench.stats, "gpu_mem", None)
             getattr(bench.stats, "gpu_util", None)
-            
+
             resultList = []
             for statType in ["mean", "gpu_mem", "gpu_util"]:
                 bn = "%s_%s" % (benchName, suffixDict[statType])
@@ -539,7 +588,18 @@ def pytest_sessionfinish(session, exitstatus):
                                               result=val)
                     bResult.unit = unitsDict[statType]
                     resultList.append(bResult)
-            
+
+            # If there were any custom metrics, add each of those as well as an
+            # individual result to the same bInfo isntance.
+            for customMetricName in bench.stats.getCustomMetricNames():
+                (result, unitString) = bench.stats.getCustomMetric(customMetricName)
+                bn = "%s_%s" % (benchName, customMetricName)
+                bResult = BenchmarkResult(funcName=bn,
+                                          argNameValuePairs=list(params.items()),
+                                          result=result)
+                bResult.unit = unitString
+                resultList.append(bResult)
+
             db.addResults(bInfo, resultList)
 
 

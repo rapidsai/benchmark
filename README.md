@@ -169,6 +169,36 @@ bench_demo.py ....
     * A common option to add to `pytest.ini` is `--benchmark-gpu-max-rounds=3`. Since this is a maximum, the number of rounds could be even lower if the algo being benchmarked is slow, and 3 provides a reasonable number of rounds to catch spikes for faster algos.
 * As the args to the benchmarked function get larger, we can see the `min_rounds` coming into play more. For a benchmark of `time.sleep(.5)` and `time.sleep(.9)`, which should only allow for 2 and 1 rounds respectively for a `max_time` of 1.0, the `min_rounds` forced 3 runs for better averaging.
 
+### Adding Custom Metric capturing
+
+`rapids-pytest-benchmark` also supports the addition of arbitrary metrics to your benchmarks. You can write a metric capturing function and use the `addMetric()` attribute from the `gpubenchmark` fixture to add any arbitrary measurement that you want.
+
+Example code:
+
+```
+def bench_bfs(gpubenchmark, anyGraphWithAdjListComputed):
+    # This is where we'd call NetworkX.BFS and get its result for comparison
+    networkXResult = 3
+    def checkAccuracy(bfsResult):
+        """
+        This function will be called by the benchmarking framework and will be
+        passed the result of the benchmarked function (in this case,
+        cugraph.bfs).
+        Compare that result to NetworkX.BFS()
+        """
+        s=0
+        for d in bfsResult['distance'].values_host:
+            s+=d
+        r = float(s/len(bfsResult))
+
+        result= abs(((r - networkXResult) / networkXResult) * 100)
+        return result
+
+    gpubenchmark.addMetric(checkAccuracy, "accuracy", "percent")
+    gpubenchmark(cugraph.bfs, anyGraphWithAdjListComputed, 0)
+```
+
+In this example, cuGraph's BFS algorithm is being benchmarked. In addition to logging the default measurements, it will also log an accuracy metric. The `checkAccuracy()` function is defined which will calculate and return the accuracy value. The `addMetric()` attribute is sent the `checkAccuracy()` callable, a string representing the name of the measurement, and another string representing the unit of measurement.
 
 ## Writing and running C++ benchmarks using gbench
 TBD

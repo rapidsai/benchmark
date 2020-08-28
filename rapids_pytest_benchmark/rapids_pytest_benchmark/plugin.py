@@ -159,6 +159,9 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def __init__(self):
         super().__init__()
         self.gpuData = []
+        # Custom metrics are by:
+        #     key : name of the metric
+        #     value : tuple of (value, unit_type)
         self.__customMetrics = {}
 
 
@@ -280,12 +283,13 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
 
     def _run_custom_measurements(self, function_result):
+        # Run custom metrics if they are enabled
         if self.enabled and not(self.customMetricsDisable):
-            for (metic_name, (metric_callable, metric_unit_string)) in \
+            for (metric_name, (metric_callable, metric_unit_string)) in \
                 self.__customMetricsDict.items():
                 self.stats.updateCustomMetric(
                     metric_callable(function_result),
-                    metic_name, metric_unit_string)
+                    metric_name, metric_unit_string)
 
 
     def _raw(self, function_to_benchmark, *args, **kwargs):

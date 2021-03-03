@@ -18,7 +18,7 @@ from pynvml import smi
 import psutil
 
 from . import __version__
-from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
+from .rmm_resource_analyzer import RMMResourceAnalyzer
 from .reporting import GPUTableResults
 
 # FIXME: find a better place to do this and/or a better way
@@ -38,7 +38,7 @@ def pytest_addoption(parser):
     group.addoption(
         "--benchmark-gpu-device",
         metavar="GPU_DEVICENO", default=[0], type=_parseSaveGPUDeviceNum,
-        help="GPU device number to observe for GPU metrics."
+        help="GPU device number to include in benchmark metadata."
     )
     group.addoption(
         "--benchmark-gpu-max-rounds", type=_parseGpuMaxRounds,
@@ -206,11 +206,10 @@ class GPUStats(pytest_benchmark_stats.Stats):
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
     def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
-                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False,
+                 gpuMaxRounds=None, gpuDisable=False,
                  customMetricsDisable=False):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
-        self.gpuDeviceNums = gpuDeviceNums or [0]
         self.gpuMaxRounds = gpuMaxRounds
         self.gpuDisable = gpuDisable
         self.customMetricsDisable = customMetricsDisable
@@ -237,8 +236,8 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         obj containing the measurements.
         """
         def runner():
-            gpuPollObj = startGpuMetricPolling(self.gpuDeviceNums)
-            time.sleep(0.1)  # Helps ensure the polling process has started
+            rmm_analyzer = RMMResourceAnalyzer()
+            rmm_analyzer.enable_logging()
             try:
                 startTime = time.time()
                 function_to_benchmark(*args, **kwargs)
@@ -249,10 +248,11 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
                     time.sleep(0.1)
 
             finally:
-                stopGpuMetricPolling(gpuPollObj)
+                rmm_analyzer.disable_logging()
+                rmm_analyzer.parse_results()
 
-            return GPUBenchmarkResults(gpuMem=gpuPollObj.maxGpuMemUsed,
-                                       gpuUtil=gpuPollObj.maxGpuUtil)
+            return GPUBenchmarkResults(gpuMem=rmm_analyzer.max_gpu_mem_usage,
+                                       gpuUtil=rmm_analyzer.max_gpu_util)
         return runner
 
 
@@ -401,14 +401,12 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
 def gpubenchmark(request, benchmark):
     # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
     # FIXME: if no params, do not enforce fixture_param_names check
-    gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
     gpuMaxRounds = request.config.getoption("benchmark_gpu_max_rounds")
     gpuDisable = request.config.getoption("benchmark_gpu_disable")
     customMetricsDisable = request.config.getoption("benchmark_custom_metrics_disable")
     return GPUBenchmarkFixture(
         benchmark,
         fixtureParamNames=request.node.keywords.get("fixture_param_names"),
-        gpuDeviceNums=gpuDeviceNums,
         gpuMaxRounds=gpuMaxRounds,
         gpuDisable=gpuDisable,
         customMetricsDisable=customMetricsDisable)
@@ -500,6 +498,8 @@ def pytest_sessionfinish(session, exitstatus):
         # was specified on the command line.
         smi.nvmlInit()
         # only supporting 1 GPU
+        # FIXME: see if it's possible to auto detect gpu device number instead of
+        # manually passing a value
         gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(gpuDeviceNums[0])
 
         uname = platform.uname()

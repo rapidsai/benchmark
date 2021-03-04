@@ -38,10 +38,10 @@ def pytest_addoption(parser):
     group.addoption(
         "--benchmark-gpu-device",
         metavar="GPU_DEVICENO", default=[0], type=_parseSaveGPUDeviceNum,
-        help="GPU device number to include in benchmark metadata."
+        action="append", help="GPU device number to observe for GPU metrics."
     )
     group.addoption(
-        "--benchmark-gpu-max-rounds", type=_parseGpuMaxRounds,
+        "--benchmark-gpu-max-rounds", default=1, type=_parseGpuMaxRounds,
         help="Maximum number of rounds to run the test/benchmark during the "
         "GPU measurement phase. If not provided, will run the same number of "
         "rounds performed for the runtime measurement."
@@ -78,6 +78,8 @@ def _parseGpuMaxRounds(stringOpt):
     """
     Ensures opt passed is a number > 0
     """
+    if stringOpt != "1":
+        raise argparse.ArgumentTypeError("Only 1 round is supported until GPU utilization is implemented")
     if not stringOpt:
         raise argparse.ArgumentTypeError("Cannot be empty")
     if stringOpt.isdecimal():
@@ -190,10 +192,6 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def gpu_rounds(self):
         return len(self.gpuData)
 
-    # Only the max values are available for GPU metrics, since the method with
-    # which they're obtained (polling the GPU) lends itself to missing spikes,
-    # and a min or average really isn't meaningful. The max returned here is
-    # really a lower bound, to be read as "the [mem|gpu] usage was *at least* x"
     @pytest_benchmark_utils.cached_property
     def gpu_mem(self):
         return max([i[0] for i in self.gpuData])
@@ -206,10 +204,11 @@ class GPUStats(pytest_benchmark_stats.Stats):
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
     def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
-                 gpuMaxRounds=None, gpuDisable=False,
+                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False,
                  customMetricsDisable=False):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
+        self.gpuDeviceNums = gpuDeviceNums or [0]
         self.gpuMaxRounds = gpuMaxRounds
         self.gpuDisable = gpuDisable
         self.customMetricsDisable = customMetricsDisable
@@ -236,7 +235,7 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         obj containing the measurements.
         """
         def runner():
-            rmm_analyzer = RMMResourceAnalyzer()
+            rmm_analyzer = RMMResourceAnalyzer(self.gpuDeviceNums)
             rmm_analyzer.enable_logging()
             try:
                 startTime = time.time()
@@ -249,7 +248,6 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
             finally:
                 rmm_analyzer.disable_logging()
-                rmm_analyzer.parse_results()
 
             return GPUBenchmarkResults(gpuMem=rmm_analyzer.max_gpu_mem_usage,
                                        gpuUtil=rmm_analyzer.max_gpu_util)
@@ -264,15 +262,19 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         if self.enabled and not(self.gpuDisable):
             gpuRunner = self._make_gpu_runner(function_to_benchmark, args, kwargs)
 
-            # Get the number of rounds performed from the runtime measurement
-            rounds = self.stats.stats.rounds
-            assert rounds > 0  # FIXME: do we need this?
+            # This loop can be used to re-implement GPU utiliziation in the future
+            #
+            # # Get the number of rounds performed from the runtime measurement
+            # rounds = self.stats.stats.rounds
+            # assert rounds > 0  # FIXME: do we need this?
 
-            if self.gpuMaxRounds is not None:
-                rounds = min(rounds, self.gpuMaxRounds)
+            # if self.gpuMaxRounds is not None:
+            #     rounds = min(rounds, self.gpuMaxRounds)
 
-            for _ in pytest_benchmark_compat.XRANGE(rounds):
-                self.stats.updateGPUMetrics(gpuRunner())
+            # for _ in pytest_benchmark_compat.XRANGE(rounds):
+            #     self.stats.updateGPUMetrics(gpuRunner())
+
+            self.stats.updateGPUMetrics(gpuRunner())
 
         # Set the "mode" (regular or pedantic) here rather than override another
         # method. This is needed since cleanup callbacks registered prior to the
@@ -401,12 +403,14 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
 def gpubenchmark(request, benchmark):
     # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
     # FIXME: if no params, do not enforce fixture_param_names check
+    gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
     gpuMaxRounds = request.config.getoption("benchmark_gpu_max_rounds")
     gpuDisable = request.config.getoption("benchmark_gpu_disable")
     customMetricsDisable = request.config.getoption("benchmark_custom_metrics_disable")
     return GPUBenchmarkFixture(
         benchmark,
         fixtureParamNames=request.node.keywords.get("fixture_param_names"),
+        gpuDeviceNums=gpuDeviceNums,
         gpuMaxRounds=gpuMaxRounds,
         gpuDisable=gpuDisable,
         customMetricsDisable=customMetricsDisable)
@@ -498,8 +502,6 @@ def pytest_sessionfinish(session, exitstatus):
         # was specified on the command line.
         smi.nvmlInit()
         # only supporting 1 GPU
-        # FIXME: see if it's possible to auto detect gpu device number instead of
-        # manually passing a value
         gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(gpuDeviceNums[0])
 
         uname = platform.uname()

@@ -23,6 +23,7 @@ requirements:
         - asvdb>=0.3.0
         - pygal
         - psutil
+        - rmm>=0.18.0
 
 test:
     imports:

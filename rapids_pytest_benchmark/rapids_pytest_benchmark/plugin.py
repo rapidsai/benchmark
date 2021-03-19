@@ -23,6 +23,7 @@ from .reporting import GPUTableResults
 
 # FIXME: find a better place to do this and/or a better way
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
+pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_leaked_mem")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_rounds")
 
@@ -126,15 +127,16 @@ def _parseSaveMetadata(stringOpt):
 
     for key in retDict.keys():
         if key not in validVars:
-            raise argparse.ArgumentTypeError(f'invalid metadata var: "{var}"')
+            raise argparse.ArgumentTypeError(f'invalid metadata var: "{key}"')
 
     return retDict
 
 
 class GPUBenchmarkResults:
-    def __init__(self, gpuMem, gpuUtil):
+    def __init__(self, gpuMem, gpuUtil, gpuLeakedMem):
         self.gpuMem = gpuMem
         self.gpuUtil = gpuUtil
+        self.gpuLeakedMem = gpuLeakedMem
 
 
 class GPUMetadata(pytest_benchmark_stats.Metadata):
@@ -154,7 +156,7 @@ class GPUMetadata(pytest_benchmark_stats.Metadata):
 
 class GPUStats(pytest_benchmark_stats.Stats):
     fields = (
-        "min", "max", "mean", "stddev", "rounds", "gpu_rounds", "median", "gpu_mem", "gpu_util", "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
+        "min", "max", "mean", "stddev", "rounds", "gpu_rounds", "median", "gpu_mem", "gpu_util", "gpu_leaked_mem" , "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
         "outliers", "ld15iqr", "hd15iqr", "ops", "total"
     )
 
@@ -169,7 +171,8 @@ class GPUStats(pytest_benchmark_stats.Stats):
 
     def updateGPUMetrics(self, gpuBenchmarkResults):
         self.gpuData.append((gpuBenchmarkResults.gpuMem,
-                             gpuBenchmarkResults.gpuUtil))
+                             gpuBenchmarkResults.gpuUtil,
+                             gpuBenchmarkResults.gpuLeakedMem))
 
 
     def updateCustomMetric(self, result, name, unitString):
@@ -200,6 +203,9 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def gpu_util(self):
         return max([i[1] for i in self.gpuData])
 
+    @pytest_benchmark_utils.cached_property
+    def gpu_leaked_mem(self):
+        return max([i[2] for i in self.gpuData])
 
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
@@ -249,7 +255,8 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
                 rmm_analyzer.disable_logging()
 
             return GPUBenchmarkResults(gpuMem=rmm_analyzer.max_gpu_mem_usage,
-                                       gpuUtil=rmm_analyzer.max_gpu_util)
+                                       gpuUtil=rmm_analyzer.max_gpu_util,
+                                       gpuLeakedMem=rmm_analyzer.leaked_memory)
         return runner
 
 
@@ -371,10 +378,11 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
         # think?)
         origColumns = self.columns
         self.columns = []
-        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "rounds", "gpu_rounds", "iterations"]:
+        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "gpu_leaked_mem", "rounds", "gpu_rounds", "iterations"]:
             # Always add gpu_mem (for now), and only add gpu_rounds if rounds was requested.
             if (c in origColumns) or \
                (c == "gpu_mem") or \
+               (c == "gpu_leaked_mem") or \
                ((c == "gpu_rounds") and ("rounds" in origColumns)):
                 self.columns.append(c)
 
@@ -526,10 +534,12 @@ def pytest_sessionfinish(session, exitstatus):
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
+                          gpu_leaked_mem="gpu_leaked_mem",
                           mean="time",
         )
         unitsDict = dict(gpu_util="percent",
                          gpu_mem="bytes",
+                         gpu_leaked_mem="bytes",
                          mean="seconds",
         )
 
@@ -584,7 +594,7 @@ def pytest_sessionfinish(session, exitstatus):
             getattr(bench.stats, "gpu_util", None)
 
             resultList = []
-            for statType in ["mean", "gpu_mem", "gpu_util"]:
+            for statType in ["mean", "gpu_mem", "gpu_leaked_mem", "gpu_util"]:
                 bn = "%s_%s" % (benchName, suffixDict[statType])
                 val = getattr(bench.stats, statType, None)
                 if val is not None:

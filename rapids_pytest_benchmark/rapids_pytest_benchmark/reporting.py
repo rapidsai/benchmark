@@ -24,7 +24,7 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
             worst = {}
             best = {}
             solo = len(benchmarks) == 1
-            for line, prop in progress_reporter(("min", "max", "mean", "median", "iqr", "stddev", "gpu_mem", "ops"),
+            for line, prop in progress_reporter(("min", "max", "mean", "median", "iqr", "stddev", "gpu_mem", "gpu_leaked_mem", "ops"),
                                                 tr, "{line}: {value}", line=line):
                 # During a compare, current or previous results may not have gpu keys
                 if prop not in bench:
@@ -58,6 +58,7 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                 "mean": "Mean",
                 "stddev": "StdDev",
                 "gpu_mem": "GPU mem",
+                "gpu_leaked_mem": "GPU Leaked mem",
                 "rounds": "Rounds",
                 "gpu_rounds": "GPU Rounds",
                 "iterations": "Iterations",
@@ -82,7 +83,7 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                     len(NUMBER_FMT.format(bench[prop] * adjustment))
                     for bench in benchmarks if prop in bench
                 ))
-            for prop in ["gpu_mem"]:
+            for prop in ["gpu_mem", "gpu_leaked_mem"]:
                 if [b for b in benchmarks if prop in b]:
                     widths[prop] = 2 + max(len(labels[prop]), max(
                         len(INT_NUMBER_FMT.format(bench[prop]))
@@ -129,7 +130,7 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
                             red=not solo and bench[prop] == worst.get(prop),
                             bold=True,
                         )
-                    elif prop == "gpu_mem":
+                    elif prop in ("gpu_mem", "gpu_leaked_mem"):
                         tr.write(
                             ALIGNED_INT_NUMBER_FMT.format(
                                 bench[prop],

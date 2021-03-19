@@ -13,6 +13,7 @@ class RMMResourceAnalyzer:
     def __init__(self):
         self.max_gpu_util = -1
         self.max_gpu_mem_usage = 0
+        self.leaked_memory = 0
         log_file_name = "rapids_pytest_benchmarks_log"
         self._log_file_prefix = os.path.join(tempfile.gettempdir(), log_file_name)
 
@@ -55,3 +56,4 @@ class RMMResourceAnalyzer:
 
                     if row_action == "free":
                         current_mem_usage -= row_size
+        self.leaked_memory = current_mem_usage

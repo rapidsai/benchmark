@@ -589,10 +589,6 @@ def pytest_sessionfinish(session, exitstatus):
                 else:
                     params[paramName] = paramVal
 
-            bench.stats.mean
-            getattr(bench.stats, "gpu_mem", None)
-            getattr(bench.stats, "gpu_util", None)
-
             resultList = []
             for statType in ["mean", "gpu_mem", "gpu_leaked_mem", "gpu_util"]:
                 bn = "%s_%s" % (benchName, suffixDict[statType])

@@ -7,11 +7,6 @@ In no particular order, this covers implementation details and common maintenanc
 - This is covered in detail in the [`rapids-pytest-benchmark` README](rapids_pytest_benchmark/README.md).
 
 
-## Proposal for how to integrate RMM logging for more accurate GPU mem usage (and leak detection!)
-- The latest version of RMM has an API to enable logging of memory allocs and frees to a file.
-- An issue with more details is [here](https://github.com/rapidsai/benchmark/issues/27)
-
-
 ## Working CB design doc
 - There is a diagram proposing potential CB implementation details [here](https://docs.google.com/drawings/d/1LBxqMlJM0DObfSjnK-CK8c-MxAdiFGQOXl9tId3Daaw).
   - If S3 is used for storage, a separate diagram proposing potential implementation details is [here](https://docs.google.com/drawings/d/1Cd1QDry1THKmzHpHI8jQETsSVdpncG22xqy72yUWIR0)

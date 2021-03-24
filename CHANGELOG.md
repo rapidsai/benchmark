@@ -2,6 +2,7 @@
 
 ## New Features
 
+- PR #62 - Utilize `rmm` log analysis
 - PR #45 - Add capability to parse `requirements` metadata field
 
 ## Improvements

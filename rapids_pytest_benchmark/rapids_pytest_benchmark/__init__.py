@@ -1,4 +1,4 @@
-__version__ = "0.0.13"
+__version__ = "0.0.14"
 
 def setFixtureParamNames(request, orderedParamNameList):
     """
@@ -23,9 +23,21 @@ def setFixtureParamNames(request, orderedParamNameList):
     orderedParamNameList can have more params specified than are used. For
     example, if a fixture only has 2 params, only the first 2 names in
     orderedParamNameList are used.
-    FIXME: what to do if *fewer* params are specified?
+
+    NOTE: the fixture param names set by this function are currently only used
+    for ASV reporting.
     """
-    numParams = len(request.param)
+    # This function can also be called on a single test param, which may result
+    # in request.param *not* being a list of param values.
+    if type(request.param) is list:
+        numParams = len(request.param)
+    else:
+        numParams = 1
+
+    if len(orderedParamNameList) < numParams:
+        raise IndexError("setFixtureParamNames: the number of parameter names "
+                         "is less than the number of parameters.")
+
     request.keywords.setdefault(
         "fixture_param_names",
         dict())[request.fixturename] = orderedParamNameList[:numParams]

@@ -18,11 +18,12 @@ from pynvml import smi
 import psutil
 
 from . import __version__
-from .gpu_metric_poller import startGpuMetricPolling, stopGpuMetricPolling
+from .rmm_resource_analyzer import RMMResourceAnalyzer
 from .reporting import GPUTableResults
 
 # FIXME: find a better place to do this and/or a better way
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_mem")
+pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_leaked_mem")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_util")
 pytest_benchmark_utils.ALLOWED_COLUMNS.append("gpu_rounds")
 
@@ -38,10 +39,10 @@ def pytest_addoption(parser):
     group.addoption(
         "--benchmark-gpu-device",
         metavar="GPU_DEVICENO", default=[0], type=_parseSaveGPUDeviceNum,
-        help="GPU device number to observe for GPU metrics."
+        action="append", help="GPU device number to include in benchmark metadata."
     )
     group.addoption(
-        "--benchmark-gpu-max-rounds", type=_parseGpuMaxRounds,
+        "--benchmark-gpu-max-rounds", default=1, type=_parseGpuMaxRounds,
         help="Maximum number of rounds to run the test/benchmark during the "
         "GPU measurement phase. If not provided, will run the same number of "
         "rounds performed for the runtime measurement."
@@ -78,6 +79,8 @@ def _parseGpuMaxRounds(stringOpt):
     """
     Ensures opt passed is a number > 0
     """
+    if stringOpt != "1":
+        raise argparse.ArgumentTypeError("Only 1 round is supported until GPU utilization is implemented")
     if not stringOpt:
         raise argparse.ArgumentTypeError("Cannot be empty")
     if stringOpt.isdecimal():
@@ -124,15 +127,16 @@ def _parseSaveMetadata(stringOpt):
 
     for key in retDict.keys():
         if key not in validVars:
-            raise argparse.ArgumentTypeError(f'invalid metadata var: "{var}"')
+            raise argparse.ArgumentTypeError(f'invalid metadata var: "{key}"')
 
     return retDict
 
 
 class GPUBenchmarkResults:
-    def __init__(self, gpuMem, gpuUtil):
+    def __init__(self, gpuMem, gpuUtil, gpuLeakedMem):
         self.gpuMem = gpuMem
         self.gpuUtil = gpuUtil
+        self.gpuLeakedMem = gpuLeakedMem
 
 
 class GPUMetadata(pytest_benchmark_stats.Metadata):
@@ -152,7 +156,7 @@ class GPUMetadata(pytest_benchmark_stats.Metadata):
 
 class GPUStats(pytest_benchmark_stats.Stats):
     fields = (
-        "min", "max", "mean", "stddev", "rounds", "gpu_rounds", "median", "gpu_mem", "gpu_util", "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
+        "min", "max", "mean", "stddev", "rounds", "gpu_rounds", "median", "gpu_mem", "gpu_util", "gpu_leaked_mem" , "iqr", "q1", "q3", "iqr_outliers", "stddev_outliers",
         "outliers", "ld15iqr", "hd15iqr", "ops", "total"
     )
 
@@ -167,7 +171,8 @@ class GPUStats(pytest_benchmark_stats.Stats):
 
     def updateGPUMetrics(self, gpuBenchmarkResults):
         self.gpuData.append((gpuBenchmarkResults.gpuMem,
-                             gpuBenchmarkResults.gpuUtil))
+                             gpuBenchmarkResults.gpuUtil,
+                             gpuBenchmarkResults.gpuLeakedMem))
 
 
     def updateCustomMetric(self, result, name, unitString):
@@ -190,10 +195,6 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def gpu_rounds(self):
         return len(self.gpuData)
 
-    # Only the max values are available for GPU metrics, since the method with
-    # which they're obtained (polling the GPU) lends itself to missing spikes,
-    # and a min or average really isn't meaningful. The max returned here is
-    # really a lower bound, to be read as "the [mem|gpu] usage was *at least* x"
     @pytest_benchmark_utils.cached_property
     def gpu_mem(self):
         return max([i[0] for i in self.gpuData])
@@ -202,15 +203,17 @@ class GPUStats(pytest_benchmark_stats.Stats):
     def gpu_util(self):
         return max([i[1] for i in self.gpuData])
 
+    @pytest_benchmark_utils.cached_property
+    def gpu_leaked_mem(self):
+        return max([i[2] for i in self.gpuData])
 
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
     def __init__(self, benchmarkFixtureInstance, fixtureParamNames=None,
-                 gpuDeviceNums=None, gpuMaxRounds=None, gpuDisable=False,
+                 gpuMaxRounds=None, gpuDisable=False,
                  customMetricsDisable=False):
         self.__benchmarkFixtureInstance = benchmarkFixtureInstance
         self.fixture_param_names = fixtureParamNames
-        self.gpuDeviceNums = gpuDeviceNums or [0]
         self.gpuMaxRounds = gpuMaxRounds
         self.gpuDisable = gpuDisable
         self.customMetricsDisable = customMetricsDisable
@@ -237,8 +240,8 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         obj containing the measurements.
         """
         def runner():
-            gpuPollObj = startGpuMetricPolling(self.gpuDeviceNums)
-            time.sleep(0.1)  # Helps ensure the polling process has started
+            rmm_analyzer = RMMResourceAnalyzer()
+            rmm_analyzer.enable_logging()
             try:
                 startTime = time.time()
                 function_to_benchmark(*args, **kwargs)
@@ -249,10 +252,11 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
                     time.sleep(0.1)
 
             finally:
-                stopGpuMetricPolling(gpuPollObj)
+                rmm_analyzer.disable_logging()
 
-            return GPUBenchmarkResults(gpuMem=gpuPollObj.maxGpuMemUsed,
-                                       gpuUtil=gpuPollObj.maxGpuUtil)
+            return GPUBenchmarkResults(gpuMem=rmm_analyzer.max_gpu_mem_usage,
+                                       gpuUtil=rmm_analyzer.max_gpu_util,
+                                       gpuLeakedMem=rmm_analyzer.leaked_memory)
         return runner
 
 
@@ -264,15 +268,19 @@ class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
         if self.enabled and not(self.gpuDisable):
             gpuRunner = self._make_gpu_runner(function_to_benchmark, args, kwargs)
 
-            # Get the number of rounds performed from the runtime measurement
-            rounds = self.stats.stats.rounds
-            assert rounds > 0  # FIXME: do we need this?
+            # This loop can be used to re-implement GPU utiliziation in the future
+            #
+            # # Get the number of rounds performed from the runtime measurement
+            # rounds = self.stats.stats.rounds
+            # assert rounds > 0  # FIXME: do we need this?
 
-            if self.gpuMaxRounds is not None:
-                rounds = min(rounds, self.gpuMaxRounds)
+            # if self.gpuMaxRounds is not None:
+            #     rounds = min(rounds, self.gpuMaxRounds)
 
-            for _ in pytest_benchmark_compat.XRANGE(rounds):
-                self.stats.updateGPUMetrics(gpuRunner())
+            # for _ in pytest_benchmark_compat.XRANGE(rounds):
+            #     self.stats.updateGPUMetrics(gpuRunner())
+
+            self.stats.updateGPUMetrics(gpuRunner())
 
         # Set the "mode" (regular or pedantic) here rather than override another
         # method. This is needed since cleanup callbacks registered prior to the
@@ -370,10 +378,11 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
         # think?)
         origColumns = self.columns
         self.columns = []
-        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "rounds", "gpu_rounds", "iterations"]:
-            # Always add gpu_mem (for now), and only add gpu_rounds if rounds was requested.
+        for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "gpu_leaked_mem", "rounds", "gpu_rounds", "iterations"]:
+            # Always add gpu_mem & gpu_leaked_mem (for now), and only add gpu_rounds if rounds was requested.
             if (c in origColumns) or \
                (c == "gpu_mem") or \
+               (c == "gpu_leaked_mem") or \
                ((c == "gpu_rounds") and ("rounds" in origColumns)):
                 self.columns.append(c)
 
@@ -401,14 +410,12 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
 def gpubenchmark(request, benchmark):
     # FIXME: if ASV output is enabled, enforce that fixture_param_names are set.
     # FIXME: if no params, do not enforce fixture_param_names check
-    gpuDeviceNums = request.config.getoption("benchmark_gpu_device")
     gpuMaxRounds = request.config.getoption("benchmark_gpu_max_rounds")
     gpuDisable = request.config.getoption("benchmark_gpu_disable")
     customMetricsDisable = request.config.getoption("benchmark_custom_metrics_disable")
     return GPUBenchmarkFixture(
         benchmark,
         fixtureParamNames=request.node.keywords.get("fixture_param_names"),
-        gpuDeviceNums=gpuDeviceNums,
         gpuMaxRounds=gpuMaxRounds,
         gpuDisable=gpuDisable,
         customMetricsDisable=customMetricsDisable)
@@ -500,6 +507,8 @@ def pytest_sessionfinish(session, exitstatus):
         # was specified on the command line.
         smi.nvmlInit()
         # only supporting 1 GPU
+        # FIXME: see if it's possible to auto detect gpu device number instead of
+        # manually passing a value
         gpuDeviceHandle = smi.nvmlDeviceGetHandleByIndex(gpuDeviceNums[0])
 
         uname = platform.uname()
@@ -525,10 +534,12 @@ def pytest_sessionfinish(session, exitstatus):
 
         suffixDict = dict(gpu_util="gpuutil",
                           gpu_mem="gpumem",
+                          gpu_leaked_mem="gpu_leaked_mem",
                           mean="time",
         )
         unitsDict = dict(gpu_util="percent",
                          gpu_mem="bytes",
+                         gpu_leaked_mem="bytes",
                          mean="seconds",
         )
 
@@ -578,12 +589,8 @@ def pytest_sessionfinish(session, exitstatus):
                 else:
                     params[paramName] = paramVal
 
-            bench.stats.mean
-            getattr(bench.stats, "gpu_mem", None)
-            getattr(bench.stats, "gpu_util", None)
-
             resultList = []
-            for statType in ["mean", "gpu_mem", "gpu_util"]:
+            for statType in ["mean", "gpu_mem", "gpu_leaked_mem", "gpu_util"]:
                 bn = "%s_%s" % (benchName, suffixDict[statType])
                 val = getattr(bench.stats, statType, None)
                 if val is not None:

@@ -379,7 +379,7 @@ class GPUBenchmarkSession(pytest_benchmark_session.BenchmarkSession):
         origColumns = self.columns
         self.columns = []
         for c in ["min", "max", "mean", "stddev", "median", "iqr", "outliers", "ops", "gpu_mem", "gpu_leaked_mem", "rounds", "gpu_rounds", "iterations"]:
-            # Always add gpu_mem (for now), and only add gpu_rounds if rounds was requested.
+            # Always add gpu_mem & gpu_leaked_mem (for now), and only add gpu_rounds if rounds was requested.
             if (c in origColumns) or \
                (c == "gpu_mem") or \
                (c == "gpu_leaked_mem") or \

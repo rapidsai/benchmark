@@ -32,6 +32,8 @@ class RMMResourceAnalyzer:
         log_output_files = rmm.get_log_filenames()
         rmm.mr._flush_logs()
         rmm.disable_logging()
+        # FIXME: potential improvement here would be to only parse the log files for
+        # the gpu ID that's passed in via --benchmark-gpu-device
         self._parse_results(log_output_files)
         for _, log_file in log_output_files.items():
             os.remove(log_file)

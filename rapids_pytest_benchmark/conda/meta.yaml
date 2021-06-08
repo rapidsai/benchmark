@@ -1,7 +1,7 @@
 {% set version = load_setup_py_data().get('version') %}
 
 package:
-    name: rapids-pytest-benchmark
+    name: rapids-pytest-benchmark-test
     version: {{ version }}
 
 source:
@@ -15,7 +15,7 @@ requirements:
 
     host:
         - python
-
+        - rmm>=0.19.0a
     run:
         - python
         - pytest-benchmark=3.2.3
@@ -23,7 +23,6 @@ requirements:
         - asvdb>=0.3.0
         - pygal
         - psutil
-        - rmm>=0.19.0a
 
 test:
     imports:

@@ -1,7 +1,7 @@
 {% set version = load_setup_py_data().get('version') %}
 
 package:
-    name: rapids-pytest-benchmark-test
+    name: rapids-pytest-benchmark
     version: {{ version }}
 
 source:

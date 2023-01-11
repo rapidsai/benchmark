@@ -16,12 +16,12 @@ requirements:
     host:
         - python
     run:
-        - python
-        - pytest-benchmark=3.2.3
-        - pynvml
         - asvdb>=0.3.0
-        - pygal
         - psutil
+        - pygal
+        - pynvml
+        - pytest-benchmark>=4.0.0
+        - python
         - rmm>=0.19.0a
 
 test:

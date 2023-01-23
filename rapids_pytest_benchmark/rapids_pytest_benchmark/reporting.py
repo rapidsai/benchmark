@@ -1,9 +1,21 @@
+# Copyright (c) 2020-2023, NVIDIA CORPORATION.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import sys
 import operator
 
 from pytest_benchmark import table as pytest_benchmark_table
 from pytest_benchmark import utils as pytest_benchmark_utils
-from pytest_benchmark import histogram as pytest_benchmark_histogram
 
 
 NUMBER_FMT = pytest_benchmark_table.NUMBER_FMT
@@ -160,6 +172,11 @@ class GPUTableResults(pytest_benchmark_table.TableResults):
             tr.write_line("-" * len(labels_line), yellow=True)
             tr.write_line("")
             if self.histogram:
+                # This import requires additional dependencies. Import it
+                # here so reporting that does not use the histogram feature
+                # need not install dependencies that will not be used.
+                from pytest_benchmark import histogram as pytest_benchmark_histogram
+
                 if len(benchmarks) > 75:
                     self.logger.warn("Group {0!r} has too many benchmarks. Only plotting 50 benchmarks.".format(group))
                     benchmarks = benchmarks[:75]

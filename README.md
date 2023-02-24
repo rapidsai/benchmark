@@ -290,7 +290,7 @@ conda install -c rlratzel -y rapids-pytest-benchmark
 cd datasets
 mkdir csv
 cd csv
-wget https://rapidsai-data.s3.us-east-2.amazonaws.com/cugraph/benchmark/benchmark_csv_data.tgz
+wget https://data.rapids.ai/cugraph/benchmark/benchmark_csv_data.tgz
 tar -zxf benchmark_csv_data.tgz && rm benchmark_csv_data.tgz
 
 # copy benchmarks to cugraph

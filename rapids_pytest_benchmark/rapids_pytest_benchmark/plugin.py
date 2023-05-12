@@ -210,15 +210,24 @@ class GPUStats(pytest_benchmark_stats.Stats):
 
     @pytest_benchmark_utils.cached_property
     def gpu_mem(self):
-        return max([i[0] for i in self.gpuData])
+        if len(self.gpuData) > 0:
+            return max([i[0] for i in self.gpuData])
+        else:
+            return 0
 
     @pytest_benchmark_utils.cached_property
     def gpu_util(self):
-        return max([i[1] for i in self.gpuData])
+        if len(self.gpuData) > 0:
+            return max([i[1] for i in self.gpuData])
+        else:
+            return 0
 
     @pytest_benchmark_utils.cached_property
     def gpu_leaked_mem(self):
-        return max([i[2] for i in self.gpuData])
+        if len(self.gpuData) > 0:
+            return max([i[2] for i in self.gpuData])
+        else:
+            return 0
 
 class GPUBenchmarkFixture(pytest_benchmark_fixture.BenchmarkFixture):
 
